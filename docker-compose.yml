@@ -1,0 +1,15 @@
+services:
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-bot-api
+    restart: always
+    env_file: .env
+    environment:
+      TELEGRAM_API_ID: "63010"
+      TELEGRAM_API_HASH: "9487a5e2f0512ba0343be68d3d408980"
+      TELEGRAM_LOCAL: "true"
+    volumes:
+      - ./telegram-data:/var/lib/telegram-bot-api
+    ports:
+      # Solo loopback: el servidor expone el token en las URLs de archivos.
+      - "127.0.0.1:8081:8081"
