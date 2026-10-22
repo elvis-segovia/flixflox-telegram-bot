@@ -60,12 +60,16 @@ func (c category) label() string {
 }
 
 type session struct {
-	Stage                   stage
-	Category                category
-	Title                   string
-	Description             string
-	ReleaseYear             string
-	Genre                   string
+	Stage       stage
+	Category    category
+	Title       string
+	Description string
+	ReleaseYear string
+	Genre       string
+	// Genres es la lista que le mostró el bot al elegir categoría. Queda fija
+	// durante toda la carga para que los números que mande el usuario sigan
+	// apuntando a los mismos géneros aunque el API cambie mientras tanto.
+	Genres                  []string
 	Rating                  string
 	Background              string
 	SeasonNumber            string

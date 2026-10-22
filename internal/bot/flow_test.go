@@ -144,6 +144,56 @@ func TestTitleStepIsRequiredAndSanitized(t *testing.T) {
 	}
 }
 
+// El usuario elige números, pero lo que se guarda son los nombres: la
+// numeración existe solo en la conversación.
+func TestGenreStepResolvesNumbersAgainstTheListShown(t *testing.T) {
+	list := []string{"Action", "Sci-Fi", "Noir"}
+
+	tests := []struct {
+		name   string
+		answer string
+		want   string
+	}{
+		{"un número", "2", "Sci-Fi"},
+		{"separados por espacio", "1 3", "Action, Noir"},
+		{"separados por coma", "1, 3", "Action, Noir"},
+		{"repetido", "2 2", "Sci-Fi"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sess := session{Genres: list}
+			if err := assignGenres(&sess, tt.answer); err != nil {
+				t.Fatalf("%q rechazado: %v", tt.answer, err)
+			}
+			if sess.Genre != tt.want {
+				t.Errorf("Genre = %q, se esperaba %q", sess.Genre, tt.want)
+			}
+		})
+	}
+
+	// Un número fuera de la lista se rechaza entero: guardar los válidos y
+	// descartar el resto en silencio carga un género que nadie eligió.
+	for _, answer := range []string{"0", "4", "sci-fi", "1 4", ""} {
+		sess := session{Genres: list}
+		if err := assignGenres(&sess, answer); err == nil {
+			t.Errorf("%q tendría que rechazarse, quedó Genre = %q", answer, sess.Genre)
+		}
+	}
+}
+
+// Si el API no contestó la lista queda vacía y el paso acepta texto libre, en
+// vez de dejar la carga trabada en un género.
+func TestGenreStepFallsBackToFreeTextWithoutList(t *testing.T) {
+	var sess session
+	if err := assignGenres(&sess, "sci-fi, noir"); err != nil {
+		t.Fatalf("texto libre rechazado: %v", err)
+	}
+	if sess.Genre != "sci-fi, noir" {
+		t.Errorf("Genre = %q, se esperaba el texto tal cual", sess.Genre)
+	}
+}
+
 func TestVideoBaseName(t *testing.T) {
 	tests := []struct {
 		name string

@@ -2,16 +2,25 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"flixflox-telegram-bot/internal/storage"
 )
+
+type Genre struct {
+	Genre string `json:"genre"`
+}
 
 const helpText = "Commands:\n" +
 	"/start - choose what to upload\n" +
@@ -44,13 +53,13 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 
 	switch {
 	case update.CallbackQuery != nil:
-		b.handleCallback(update.CallbackQuery)
+		b.handleCallback(ctx, update.CallbackQuery)
 	case update.Message != nil:
 		b.handleMessage(ctx, update.Message)
 	}
 }
 
-func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
+func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQuery) {
 	// Siempre hay que responder el callback, aunque sea vacío, o al usuario le
 	// queda el botón girando.
 	defer b.answerCallback(callback.ID, "")
@@ -71,7 +80,10 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 		return
 	}
 
-	sess := session{Stage: stageAwaitingTitle, Category: cat}
+	// La lista de géneros se trae una sola vez, acá, y no en el paso del género:
+	// así el usuario ve siempre la misma numeración y un API caído no corta la
+	// carga a mitad de camino.
+	sess := session{Stage: stageAwaitingTitle, Category: cat, Genres: b.genreNames(ctx)}
 	b.sessions.set(chatID, sess)
 
 	first, ok := stepFor(sess)
@@ -85,7 +97,7 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 	// teclados viejos que el usuario puede volver a tocar.
 	edit := tgbotapi.NewEditMessageText(chatID, callback.Message.MessageID, question)
 	if _, err := b.api.Send(edit); err != nil {
-		log.Printf("no se pudo editar el menú: %v", err)
+		log.Printf("error editing the menu: %v", err)
 		b.send(chatID, question)
 	}
 }
@@ -332,10 +344,22 @@ var metadataSteps = []step{
 		},
 	},
 	{
-		stage:     stageAwaitingGenre,
-		ask:       ask("Send me the genres, separated by commas."),
+		stage: stageAwaitingGenre,
+		ask: func(sess session) string {
+			if len(sess.Genres) == 0 {
+				// Sin lista del API se acepta lo que el usuario escriba.
+				return "Send me the genres, separated by comma."
+			}
+
+			var out strings.Builder
+			out.WriteString("Select the genre numbers and send them separated by space:\n")
+			for i, name := range sess.Genres {
+				fmt.Fprintf(&out, "%d. %s\n", i+1, name)
+			}
+			return out.String()
+		},
 		skippable: true,
-		assign:    func(sess *session, text string) error { sess.Genre = text; return nil },
+		assign:    assignGenres,
 	},
 	{
 		stage:     stageAwaitingRating,
@@ -478,6 +502,42 @@ func wholeNumber(label string, field func(*session) *string) func(*session, stri
 	}
 }
 
+// assignGenres traduce los números que eligió el usuario a los nombres que le
+// mostró el paso. Se guardan los nombres y no los números porque la numeración
+// es solo de la conversación: el API no la conoce.
+func assignGenres(sess *session, text string) error {
+	if len(sess.Genres) == 0 {
+		sess.Genre = text
+		return nil
+	}
+
+	// Se acepta "1 3" y también "1, 3": pedir una separación exacta es hacer
+	// fallar la carga por una coma.
+	numbers := strings.FieldsFunc(text, func(r rune) bool {
+		return r == ',' || unicode.IsSpace(r)
+	})
+	if len(numbers) == 0 {
+		return fmt.Errorf("Send at least one number between 1 and %d.", len(sess.Genres))
+	}
+
+	var chosen []string
+	seen := make(map[int]bool, len(numbers))
+	for _, number := range numbers {
+		n, err := strconv.Atoi(number)
+		if err != nil || n < 1 || n > len(sess.Genres) {
+			return fmt.Errorf("%q is not on the list. Send numbers between 1 and %d.", number, len(sess.Genres))
+		}
+		if seen[n] { // repetir un número no duplica el género
+			continue
+		}
+		seen[n] = true
+		chosen = append(chosen, sess.Genres[n-1])
+	}
+
+	sess.Genre = strings.Join(chosen, ", ")
+	return nil
+}
+
 // timecode valida la forma del tiempo y lo guarda tal cual: alcanza con
 // rechazar cualquier cosa, sin adivinar en qué unidad lo espera el reproductor.
 func timecode(field func(*session) *string) func(*session, string) error {
@@ -546,4 +606,71 @@ func (s session) summary() string {
 		fmt.Fprintf(&out, "• %s: %s\n", f.label, f.value)
 	}
 	return out.String()
+}
+
+const (
+	// genreTTL evita pedirle la lista al API en cada carga.
+	genreTTL = 10 * time.Minute
+	// genreTimeout acota la espera: el usuario está mirando el menú.
+	genreTimeout = 10 * time.Second
+)
+
+// genreNames devuelve los nombres de género para numerar en el paso del género.
+// Si el API no contesta se devuelve lo último que se pudo traer (o nil, y
+// entonces el paso pide el texto a mano): quedarse sin géneros no justifica
+// cortar una carga.
+func (b *Bot) genreNames(ctx context.Context) []string {
+	b.genresMu.Lock()
+	defer b.genresMu.Unlock()
+
+	if b.genres != nil && time.Since(b.genresAt) < genreTTL {
+		return b.genres
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, genreTimeout)
+	defer cancel()
+
+	genres, err := b.fetchGenreData(ctx)
+	if err != nil {
+		log.Printf("no se pudo traer la lista de géneros: %v", err)
+		return b.genres
+	}
+
+	names := make([]string, 0, len(genres))
+	for _, genre := range genres {
+		if name := strings.TrimSpace(genre.Genre); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	b.genres = names
+	b.genresAt = time.Now()
+	return names
+}
+
+func (b *Bot) fetchGenreData(ctx context.Context) ([]Genre, error) {
+	url := fmt.Sprintf("%s/v1/api/bot/genres", b.cfg.APIUrl)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create genre request: %w", err)
+	}
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch flixflox genre data: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("failed to fetch flixflox genre data: status %d: %s", resp.StatusCode, body)
+	}
+
+	var genres []Genre
+	if err := json.NewDecoder(resp.Body).Decode(&genres); err != nil {
+		return nil, fmt.Errorf("failed to decode genre data: %w", err)
+	}
+
+	return genres, nil
 }

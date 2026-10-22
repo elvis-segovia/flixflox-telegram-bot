@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"flixflox-telegram-bot/internal/bot"
 	"flixflox-telegram-bot/internal/config"
@@ -28,7 +30,11 @@ func run() error {
 		return err
 	}
 
-	b, err := bot.New(cfg)
+	clientHttp := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	b, err := bot.New(cfg, clientHttp)
 	if err != nil {
 		return err
 	}

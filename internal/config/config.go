@@ -22,14 +22,16 @@ type Config struct {
 
 	// APIEndpoint y FileEndpoint apuntan al Bot API local (o al oficial).
 	// Ambos deben contener dos verbos %s: token y método/ruta.
-	APIEndpoint  string `envconfig:"TELEGRAM_API_ENDPOINT"`
-	FileEndpoint string `envconfig:"TELEGRAM_FILE_ENDPOINT"`
+	TelegramAPIEndpoint  string `envconfig:"TELEGRAM_API_ENDPOINT"`
+	TelegramFileEndpoint string `envconfig:"TELEGRAM_FILE_ENDPOINT"`
 
 	// TelegramDataDir es el volumen del servidor local visto desde el host,
 	// y ServerWorkDir la misma carpeta vista desde adentro del contenedor.
 	// Con los dos se traduce el file_path que devuelve getFile a una ruta real.
 	TelegramDataDir string `envconfig:"TELEGRAM_DATA_DIR" default:"./telegram-data"`
 	ServerWorkDir   string `envconfig:"TELEGRAM_SERVER_WORK_DIR" default:"/var/lib/telegram-bot-api"`
+
+	APIUrl string `envconfig:"FLIXFLOX_API_URL"`
 
 	Debug bool
 
@@ -71,8 +73,8 @@ func Load() (*Config, error) {
 
 func (c *Config) validate() error {
 	for name, endpoint := range map[string]string{
-		"TELEGRAM_API_ENDPOINT":  c.APIEndpoint,
-		"TELEGRAM_FILE_ENDPOINT": c.FileEndpoint,
+		"TELEGRAM_API_ENDPOINT":  c.TelegramAPIEndpoint,
+		"TELEGRAM_FILE_ENDPOINT": c.TelegramFileEndpoint,
 	} {
 		if strings.Count(endpoint, "%s") != 2 {
 			return fmt.Errorf("%s debe contener exactamente dos %%s (token y ruta), se recibió %q", name, endpoint)

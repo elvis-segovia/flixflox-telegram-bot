@@ -9,7 +9,7 @@ import (
 
 // FileURL arma la URL de descarga a partir del file_path que devuelve getFile.
 func (c *Config) FileURL(serverFilePath string) string {
-	return fmt.Sprintf(c.FileEndpoint, c.BotToken, strings.TrimPrefix(serverFilePath, "/"))
+	return fmt.Sprintf(c.TelegramFileEndpoint, c.BotToken, strings.TrimPrefix(serverFilePath, "/"))
 }
 
 // HostPath traduce el file_path que devuelve getFile (una ruta absoluta dentro
