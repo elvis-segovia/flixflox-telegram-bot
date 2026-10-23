@@ -6,22 +6,27 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"flixflox-telegram-bot/internal/storage"
 )
 
+type kind string
+
+const (
+	background kind = "background"
+	video      kind = "video"
+)
+
 // downloadOpts ajusta una descarga puntual. El cero vale para el caso normal:
 // el archivo se guarda con el nombre que trae y nadie espera el resultado.
 type downloadOpts struct {
-	// baseName reemplaza el nombre del archivo (sin extensión). Sirve para los
-	// adjuntos que tienen un lugar fijo, como la imagen de fondo.
 	baseName string
-
-	// onSaved corre al terminar bien, con la ruta final. Corre en la goroutine
-	// de la descarga, así que tiene que ser seguro para uso concurrente.
-	onSaved func(path string)
+	kind     kind
+	onSaved  func(path string)
 }
 
 // startDownload confirma la recepción y baja el archivo en segundo plano, para
@@ -37,7 +42,7 @@ func (b *Bot) startDownload(ctx context.Context, msg *tgbotapi.Message, sess ses
 	statusMsg := b.deliver(status)
 
 	b.wg.Go(func() {
-		path, err := b.saveMedia(ctx, media, sess, opts.baseName)
+		path, err := b.saveMedia(ctx, media, sess, opts.baseName, opts.kind)
 		var text string
 		if err != nil {
 			log.Printf("error guardando %s: %v", media.fileID, err)
@@ -58,24 +63,33 @@ func (b *Bot) startDownload(ctx context.Context, msg *tgbotapi.Message, sess ses
 	})
 }
 
-// saveMedia resuelve el archivo en el servidor local (o lo baja por HTTP) y lo
-// deja en uploads/<categoría>/<título>/. Devuelve la ruta final.
-func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, baseName string) (string, error) {
+func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, baseName string, kind kind) (string, error) {
 	file, err := b.api.GetFile(tgbotapi.FileConfig{FileID: media.fileID})
 	if err != nil {
 		return "", fmt.Errorf("getFile: %w", err)
 	}
 
-	destDir := filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), sess.Title)
+	folderName := SanitizeFilename(sess.Title)
+
+	destDir := filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), folderName)
+	if kind == video {
+		season, errSeason := strconv.Atoi(sess.SeasonNumber)
+		episode, errEpisode := strconv.Atoi(sess.EpisodeNumber)
+
+		if errSeason != nil || errEpisode != nil {
+			return "Season or episode number are invalid", nil
+		}
+
+		destDir = filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), folderName, fmt.Sprintf("S%02d", season), fmt.Sprintf("E%02d", episode))
+	}
+
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("creando carpeta destino: %w", err)
 	}
 
-	// El nombre viene del usuario: se sanea siempre, y si no queda nada usable
-	// se cae al nombre generado a partir del file_unique_id.
-	name := storage.SanitizeName(baseName)
+	name := SanitizeFilename(baseName)
 	if name == "" {
-		name = storage.SanitizeName(media.fileName)
+		name = SanitizeFilename(media.fileName)
 	}
 	if name == "" {
 		name = media.fallbackName
@@ -103,4 +117,13 @@ func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, base
 		return "", fmt.Errorf("descargando archivo: %w", err)
 	}
 	return destPath, nil
+}
+
+func SanitizeFilename(name string) string {
+	replacer := strings.NewReplacer(
+		" ", "_", "/", "_", "\\", "_", ":", "_",
+		"*", "_", "?", "_", "\"", "_", "<", "_",
+		">", "_", "|", "_", ".", "_",
+	)
+	return strings.ToLower(replacer.Replace(name))
 }

@@ -207,6 +207,7 @@ func (b *Bot) saveBackground(ctx context.Context, msg *tgbotapi.Message, sess se
 	b.advance(chatID, sess)
 	b.startDownload(ctx, msg, sess, downloadOpts{
 		baseName: "background",
+		kind:     "background",
 		onSaved: func(path string) {
 			b.sessions.update(chatID, func(cur *session) bool {
 				if cur.Title != sess.Title { // ya es otra subida
@@ -230,32 +231,7 @@ func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session
 		return
 	}
 
-	b.startDownload(ctx, msg, sess, downloadOpts{baseName: videoBaseName(sess)})
-}
-
-// videoBaseName arma el nombre del archivo con lo que se cargó en la sesión,
-// para que la carpeta quede legible y ordenada: "Title (1999)" para una
-// película y "S01E02 - Episode title" para un episodio. Vacío significa que se
-// conserva el nombre que trae el archivo.
-func videoBaseName(sess session) string {
-	if sess.Category != categoryTVShow {
-		if sess.ReleaseYear == "" {
-			return sess.Title
-		}
-		return fmt.Sprintf("%s (%s)", sess.Title, sess.ReleaseYear)
-	}
-
-	season, errSeason := strconv.Atoi(sess.SeasonNumber)
-	episode, errEpisode := strconv.Atoi(sess.EpisodeNumber)
-	if errSeason != nil || errEpisode != nil {
-		return sess.EpisodeTitle // puede ser "", y entonces manda el nombre original
-	}
-
-	name := fmt.Sprintf("S%02dE%02d", season, episode)
-	if sess.EpisodeTitle != "" {
-		name += " - " + sess.EpisodeTitle
-	}
-	return name
+	b.startDownload(ctx, msg, sess, downloadOpts{baseName: sess.Title, kind: "video"})
 }
 
 // advance mueve la sesión al paso siguiente y lo pregunta.
@@ -333,7 +309,7 @@ var metadataSteps = []step{
 	{
 		stage:     stageAwaitingYear,
 		ask:       ask("Send me the release year."),
-		skippable: true,
+		skippable: false,
 		assign: func(sess *session, text string) error {
 			year, err := strconv.Atoi(text)
 			if err != nil || year < 1880 || year > 2100 {
@@ -358,19 +334,19 @@ var metadataSteps = []step{
 			}
 			return out.String()
 		},
-		skippable: true,
+		skippable: false,
 		assign:    assignGenres,
 	},
 	{
 		stage:     stageAwaitingRating,
 		ask:       ask("Send me the rating."),
-		skippable: true,
+		skippable: false,
 		assign:    func(sess *session, text string) error { sess.Rating = text; return nil },
 	},
 	{
 		stage:     stageAwaitingBackground,
 		ask:       ask("Send me the background image, or a link to it."),
-		skippable: true,
+		skippable: false,
 		media:     true,
 		assign:    func(sess *session, text string) error { sess.Background = text; return nil },
 	},

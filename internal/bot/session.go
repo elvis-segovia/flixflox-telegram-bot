@@ -33,7 +33,7 @@ type category string
 
 const (
 	categoryMovie  category = "movie"
-	categoryTVShow category = "tv-show"
+	categoryTVShow category = "tv-shows"
 )
 
 // dir es el subdirectorio de uploads/ donde cae cada categoría.
