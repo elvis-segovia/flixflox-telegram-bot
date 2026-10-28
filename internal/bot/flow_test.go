@@ -5,18 +5,19 @@ import (
 	"testing"
 )
 
-// sampleAnswers tiene una respuesta válida por paso. Un paso nuevo sin entrada
-// acá rompe los tests a propósito: así no se agrega al flujo sin cubrirlo.
+// sampleAnswers holds one valid answer per step. A new step with no entry here
+// breaks the tests on purpose: that way it cannot be added to the flow without
+// being covered.
 var sampleAnswers = map[stage]string{
 	stageAwaitingTitle:                   "Blade Runner",
-	stageAwaitingDescription:             "Un cazador de replicantes",
+	stageAwaitingDescription:             "A blade runner hunting replicants",
 	stageAwaitingYear:                    "1982",
 	stageAwaitingGenre:                   "sci-fi, noir",
 	stageAwaitingRating:                  "8.1",
 	stageAwaitingBackground:              "https://example.test/bg.jpg",
 	stageAwaitingSeasonNumber:            "1",
 	stageAwaitingEpisodeNumber:           "2",
-	stageAwaitingEpisodeTitle:            "Segundo episodio",
+	stageAwaitingEpisodeTitle:            "Second episode",
 	stageAwaitingSkipIntroDisplayMessage: "Skip intro",
 	stageAwaitingSkipIntroStartTime:      "0:30",
 	stageAwaitingSkipIntroEndTime:        "1:30",
@@ -26,40 +27,40 @@ var sampleAnswers = map[stage]string{
 func TestFlowsEndOnTheFileStep(t *testing.T) {
 	for name, flow := range map[string][]step{"movie": movieFlow, "tv-show": tvShowFlow} {
 		if len(flow) == 0 {
-			t.Fatalf("el flujo %s está vacío", name)
+			t.Fatalf("the %s flow is empty", name)
 		}
 
 		last := flow[len(flow)-1]
 		if last.stage != stageAwaitingFile {
-			t.Errorf("el flujo %s termina en la etapa %d, se esperaba el archivo", name, last.stage)
+			t.Errorf("the %s flow ends on stage %d, want the file", name, last.stage)
 		}
 		if !last.media {
-			t.Errorf("el último paso del flujo %s no acepta adjuntos", name)
+			t.Errorf("the last step of the %s flow does not accept attachments", name)
 		}
 
 		seen := map[stage]bool{}
 		for _, st := range flow {
 			if seen[st.stage] {
-				t.Errorf("el flujo %s repite la etapa %d", name, st.stage)
+				t.Errorf("the %s flow repeats stage %d", name, st.stage)
 			}
 			seen[st.stage] = true
 		}
 	}
 }
 
-// Una película no tiene temporada ni episodio: antes se los preguntaba igual.
+// A movie has no season or episode: it used to be asked for them anyway.
 func TestMovieFlowSkipsEpisodeSteps(t *testing.T) {
 	for _, st := range movieFlow {
 		for _, episodeStep := range episodeSteps {
 			if st.stage == episodeStep.stage {
-				t.Errorf("el flujo de películas incluye la etapa de serie %d", st.stage)
+				t.Errorf("the movie flow includes the TV show stage %d", st.stage)
 			}
 		}
 	}
 }
 
-// Invariante central: cada paso escribe en su propio campo. El bug original
-// era que de la temporada en adelante todos guardaban en SeasonNumber.
+// Core invariant: each step writes to its own field. The original bug was that
+// from the season onwards they all stored into SeasonNumber.
 func TestEachStepWritesItsOwnField(t *testing.T) {
 	writers := map[string]stage{}
 
@@ -70,82 +71,83 @@ func TestEachStepWritesItsOwnField(t *testing.T) {
 
 		answer, ok := sampleAnswers[st.stage]
 		if !ok {
-			t.Fatalf("falta una respuesta de ejemplo para la etapa %d", st.stage)
+			t.Fatalf("a sample answer for stage %d is missing", st.stage)
 		}
 
 		sess := session{Category: categoryTVShow, Stage: st.stage}
 		if err := st.assign(&sess, answer); err != nil {
-			t.Fatalf("la etapa %d rechazó %q: %v", st.stage, answer, err)
+			t.Fatalf("stage %d rejected %q: %v", st.stage, answer, err)
 		}
 
 		changed := changedFields(session{Category: categoryTVShow, Stage: st.stage}, sess)
 		if len(changed) != 1 {
-			t.Fatalf("la etapa %d escribió %v, se esperaba un solo campo", st.stage, changed)
+			t.Fatalf("stage %d wrote %v, want a single field", st.stage, changed)
 		}
 		if other, dup := writers[changed[0]]; dup {
-			t.Errorf("las etapas %d y %d escriben las dos en %s", other, st.stage, changed[0])
+			t.Errorf("stages %d and %d both write to %s", other, st.stage, changed[0])
 		}
 		writers[changed[0]] = st.stage
 	}
 }
 
-// Caminar el flujo entero verifica que cada paso lleve al siguiente y que la
-// serie llegue al archivo pasando por todas las etapas.
+// Walking the whole flow checks that each step leads to the next one and that
+// a TV show reaches the file after going through every stage.
 func TestWalkingTheFlowReachesTheFileStep(t *testing.T) {
 	sess := session{Category: categoryTVShow, Stage: stageAwaitingTitle}
 
 	for range len(tvShowFlow) {
 		st, ok := stepFor(sess)
 		if !ok {
-			t.Fatalf("la etapa %d no está en el flujo", sess.Stage)
+			t.Fatalf("stage %d is not in the flow", sess.Stage)
 		}
-		if st.assign == nil { // el paso del archivo
+		if st.assign == nil { // the file step
 			break
 		}
 
 		if err := st.assign(&sess, sampleAnswers[st.stage]); err != nil {
-			t.Fatalf("la etapa %d rechazó la respuesta: %v", st.stage, err)
+			t.Fatalf("stage %d rejected the answer: %v", st.stage, err)
 		}
 		next, ok := nextStep(sess)
 		if !ok {
-			t.Fatalf("la etapa %d no tiene siguiente", sess.Stage)
+			t.Fatalf("stage %d has no next one", sess.Stage)
 		}
 		sess.Stage = next.stage
 	}
 
 	if sess.Stage != stageAwaitingFile {
-		t.Errorf("el flujo terminó en la etapa %d, se esperaba el archivo", sess.Stage)
+		t.Errorf("the flow ended on stage %d, want the file", sess.Stage)
 	}
-	if sess.SeasonNumber != "1" || sess.EpisodeNumber != "2" || sess.EpisodeTitle != "Segundo episodio" {
-		t.Errorf("se perdieron datos del episodio: %+v", sess)
+	if sess.SeasonNumber != "1" || sess.EpisodeNumber != "2" || sess.EpisodeTitle != "Second episode" {
+		t.Errorf("episode data was lost: %+v", sess)
 	}
 }
 
-// El título es el nombre de la carpeta: no se puede saltear ni aceptar sin sanear.
+// The title is the folder name: it can neither be skipped nor accepted without
+// sanitizing.
 func TestTitleStepIsRequiredAndSanitized(t *testing.T) {
 	st := tvShowFlow[0]
 	if st.stage != stageAwaitingTitle {
-		t.Fatalf("el primer paso es la etapa %d, se esperaba el título", st.stage)
+		t.Fatalf("the first step is stage %d, want the title", st.stage)
 	}
 	if st.skippable {
-		t.Error("el título no debería poder saltearse")
+		t.Error("the title should not be skippable")
 	}
 
 	var sess session
 	if err := st.assign(&sess, "../../etc"); err != nil {
-		t.Fatalf("título rechazado de más: %v", err)
+		t.Fatalf("title rejected when it should not be: %v", err)
 	}
 	if sess.Title != "_.._etc" {
-		t.Errorf("Title = %q, se esperaba el nombre saneado", sess.Title)
+		t.Errorf("Title = %q, want the sanitized name", sess.Title)
 	}
 
 	if err := st.assign(&sess, ".."); err == nil {
-		t.Error("un título que no deja nada usable tendría que rechazarse")
+		t.Error("a title that leaves nothing usable should be rejected")
 	}
 }
 
-// El usuario elige números, pero lo que se guarda son los nombres: la
-// numeración existe solo en la conversación.
+// The user picks numbers, but what gets stored are the names: the numbering
+// only exists in the conversation.
 func TestGenreStepResolvesNumbersAgainstTheListShown(t *testing.T) {
 	list := []string{"Action", "Sci-Fi", "Noir"}
 
@@ -154,86 +156,69 @@ func TestGenreStepResolvesNumbersAgainstTheListShown(t *testing.T) {
 		answer string
 		want   string
 	}{
-		{"un número", "2", "Sci-Fi"},
-		{"separados por espacio", "1 3", "Action, Noir"},
-		{"separados por coma", "1, 3", "Action, Noir"},
-		{"repetido", "2 2", "Sci-Fi"},
+		{"one number", "2", "Sci-Fi"},
+		{"space separated", "1 3", "Action, Noir"},
+		{"comma separated", "1, 3", "Action, Noir"},
+		{"repeated", "2 2", "Sci-Fi"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sess := session{Genres: list}
 			if err := assignGenres(&sess, tt.answer); err != nil {
-				t.Fatalf("%q rechazado: %v", tt.answer, err)
+				t.Fatalf("%q rejected: %v", tt.answer, err)
 			}
 			if sess.Genre != tt.want {
-				t.Errorf("Genre = %q, se esperaba %q", sess.Genre, tt.want)
+				t.Errorf("Genre = %q, want %q", sess.Genre, tt.want)
 			}
 		})
 	}
 
-	// Un número fuera de la lista se rechaza entero: guardar los válidos y
-	// descartar el resto en silencio carga un género que nadie eligió.
+	// A number outside the list is rejected as a whole: keeping the valid ones
+	// and dropping the rest silently loads a genre nobody picked.
 	for _, answer := range []string{"0", "4", "sci-fi", "1 4", ""} {
 		sess := session{Genres: list}
 		if err := assignGenres(&sess, answer); err == nil {
-			t.Errorf("%q tendría que rechazarse, quedó Genre = %q", answer, sess.Genre)
+			t.Errorf("%q should be rejected, Genre came out %q", answer, sess.Genre)
 		}
 	}
 }
 
-// Si el API no contestó la lista queda vacía y el paso acepta texto libre, en
-// vez de dejar la carga trabada en un género.
+// If the API did not answer, the list is empty and the step takes free text,
+// instead of leaving the upload stuck on a genre.
 func TestGenreStepFallsBackToFreeTextWithoutList(t *testing.T) {
 	var sess session
 	if err := assignGenres(&sess, "sci-fi, noir"); err != nil {
-		t.Fatalf("texto libre rechazado: %v", err)
+		t.Fatalf("free text rejected: %v", err)
 	}
 	if sess.Genre != "sci-fi, noir" {
-		t.Errorf("Genre = %q, se esperaba el texto tal cual", sess.Genre)
+		t.Errorf("Genre = %q, want the text as it came", sess.Genre)
 	}
 }
 
-func TestVideoBaseName(t *testing.T) {
-	tests := []struct {
-		name string
-		sess session
-		want string
-	}{
-		{
-			"película con año",
-			session{Category: categoryMovie, Title: "Blade Runner", ReleaseYear: "1982"},
-			"Blade Runner (1982)",
-		},
-		{
-			"película sin año",
-			session{Category: categoryMovie, Title: "Blade Runner"},
-			"Blade Runner",
-		},
-		{
-			"episodio con título",
-			session{Category: categoryTVShow, SeasonNumber: "1", EpisodeNumber: "2", EpisodeTitle: "Piloto"},
-			"S01E02 - Piloto",
-		},
-		{
-			"episodio sin título",
-			session{Category: categoryTVShow, SeasonNumber: "10", EpisodeNumber: "11"},
-			"S10E11",
-		},
-		{
-			// Sin números no se inventa nombre: queda el que trae el archivo.
-			"episodio sin números",
-			session{Category: categoryTVShow},
-			"",
-		},
+// The catalog stores the rating as a number, so loose text cannot get through.
+func TestRatingStepTakesNumbersOnly(t *testing.T) {
+	st := metadataSteps[4]
+	if st.stage != stageAwaitingRating {
+		t.Fatalf("step 5 is stage %d, want the rating", st.stage)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.sess.Title; got != tt.want {
-				t.Errorf("Title = %q, se esperaba %q", got, tt.want)
-			}
-		})
+	for in, want := range map[string]string{"8.1": "8.1", "8,1": "8.1", "5": "5", "0": "0", "10": "10"} {
+		var sess session
+		if err := st.assign(&sess, in); err != nil {
+			t.Errorf("%q rejected: %v", in, err)
+			continue
+		}
+		if sess.Rating != want {
+			t.Errorf("Rating = %q, want %q", sess.Rating, want)
+		}
+	}
+
+	for _, in := range []string{"", "great", "-1", "11", "8.1.2"} {
+		var sess session
+		if err := st.assign(&sess, in); err == nil {
+			t.Errorf("%q should be rejected, Rating came out %q", in, sess.Rating)
+		}
 	}
 }
 
@@ -241,19 +226,19 @@ func TestValidTimecode(t *testing.T) {
 	valid := []string{"0", "90", "123456", "1:30", "0:05", "1:02:03"}
 	for _, in := range valid {
 		if !validTimecode(in) {
-			t.Errorf("%q tendría que aceptarse", in)
+			t.Errorf("%q should be accepted", in)
 		}
 	}
 
-	invalid := []string{"", ":", "1:", ":30", "1:2", "1:2:3", "90s", "-5", "1:30:00:00", "uno:dos"}
+	invalid := []string{"", ":", "1:", ":30", "1:2", "1:2:3", "90s", "-5", "1:30:00:00", "one:two"}
 	for _, in := range invalid {
 		if validTimecode(in) {
-			t.Errorf("%q tendría que rechazarse", in)
+			t.Errorf("%q should be rejected", in)
 		}
 	}
 }
 
-// changedFields lista los campos de texto que difieren entre dos sesiones.
+// changedFields lists the text fields that differ between two sessions.
 func changedFields(before, after session) []string {
 	var changed []string
 

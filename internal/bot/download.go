@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -21,16 +22,17 @@ const (
 	video      kind = "video"
 )
 
-// downloadOpts ajusta una descarga puntual. El cero vale para el caso normal:
-// el archivo se guarda con el nombre que trae y nadie espera el resultado.
+// downloadOpts tunes a single download. The zero value covers the normal case:
+// the file is saved under the name it comes with and nobody waits for the
+// result.
 type downloadOpts struct {
 	baseName string
 	kind     kind
 	onSaved  func(path string)
 }
 
-// startDownload confirma la recepción y baja el archivo en segundo plano, para
-// que el bot siga respondiendo mientras se mueven varios GB.
+// startDownload acknowledges the file and fetches it in the background, so the
+// bot keeps answering while several GB are being moved.
 func (b *Bot) startDownload(ctx context.Context, msg *tgbotapi.Message, sess session, opts downloadOpts) {
 	media, ok := extractMedia(msg)
 	if !ok {
@@ -45,7 +47,7 @@ func (b *Bot) startDownload(ctx context.Context, msg *tgbotapi.Message, sess ses
 		path, err := b.saveMedia(ctx, media, sess, opts.baseName, opts.kind)
 		var text string
 		if err != nil {
-			log.Printf("error guardando %s: %v", media.fileID, err)
+			log.Printf("error saving %s: %v", media.fileID, err)
 			text = "❌ Could not save the file: " + err.Error()
 		} else {
 			text = "✅ Saved to:\n" + path
@@ -54,7 +56,7 @@ func (b *Bot) startDownload(ctx context.Context, msg *tgbotapi.Message, sess ses
 			}
 		}
 
-		// Si el mensaje de estado se envió, se edita; si no, se manda uno nuevo.
+		// If the status message went out it is edited; otherwise a new one is sent.
 		if statusMsg != nil {
 			b.deliver(tgbotapi.NewEditMessageText(msg.Chat.ID, statusMsg.MessageID, text))
 			return
@@ -71,20 +73,22 @@ func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, base
 
 	folderName := SanitizeFilename(sess.Title)
 
+	// Only episodes are stored under S01/E01: a movie has no season number, and
+	// demanding one anyway left the file unsaved.
 	destDir := filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), folderName)
-	if kind == video {
+	if kind == video && sess.Category == categoryTVShow {
 		season, errSeason := strconv.Atoi(sess.SeasonNumber)
 		episode, errEpisode := strconv.Atoi(sess.EpisodeNumber)
 
 		if errSeason != nil || errEpisode != nil {
-			return "Season or episode number are invalid", nil
+			return "", errors.New("Season or episode number are invalid")
 		}
 
-		destDir = filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), folderName, fmt.Sprintf("S%02d", season), fmt.Sprintf("E%02d", episode))
+		destDir = filepath.Join(destDir, fmt.Sprintf("S%02d", season), fmt.Sprintf("E%02d", episode))
 	}
 
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", fmt.Errorf("creando carpeta destino: %w", err)
+		return "", fmt.Errorf("Error creating destination folder: %w", err)
 	}
 
 	name := SanitizeFilename(baseName)
@@ -106,15 +110,15 @@ func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, base
 	if srcPath, ok := b.cfg.HostPath(file.FilePath); ok {
 		if _, statErr := os.Stat(srcPath); statErr == nil {
 			if err := storage.MoveFile(srcPath, destPath); err != nil {
-				return "", fmt.Errorf("moviendo archivo: %w", err)
+				return "", fmt.Errorf("moving file: %w", err)
 			}
 			return destPath, nil
 		}
-		log.Printf("file_path %q no existe en el host, se descarga por HTTP", srcPath)
+		log.Printf("file_path %q does not exist on the host, downloading over HTTP", srcPath)
 	}
 
 	if err := storage.DownloadFile(ctx, b.cfg.FileURL(file.FilePath), destPath); err != nil {
-		return "", fmt.Errorf("descargando archivo: %w", err)
+		return "", fmt.Errorf("downloading file: %w", err)
 	}
 	return destPath, nil
 }

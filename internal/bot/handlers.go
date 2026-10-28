@@ -28,12 +28,12 @@ const helpText = "Commands:\n" +
 	"/skip - skip the field\n" +
 	"/help - show this message"
 
-// handleUpdate despacha un update. El estado se actualiza acá, de forma
-// secuencial, y solo la descarga (lo lento) se va a otra goroutine.
+// handleUpdate dispatches an update. The state is updated here, sequentially,
+// and only the download (the slow part) goes to another goroutine.
 func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	sender := update.SentFrom()
 	if sender == nil {
-		return // canal, edición de post u otro update sin autor
+		return // channel, edited post or another update with no author
 	}
 
 	chat := update.FromChat()
@@ -42,7 +42,7 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	}
 
 	if !b.cfg.IsAllowed(sender.ID) {
-		log.Printf("acceso denegado al usuario %d (@%s)", sender.ID, sender.UserName)
+		log.Printf("access denied to user %d (@%s)", sender.ID, sender.UserName)
 		if update.CallbackQuery != nil {
 			b.answerCallback(update.CallbackQuery.ID, "Not allowed")
 			return
@@ -60,8 +60,8 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 }
 
 func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQuery) {
-	// Siempre hay que responder el callback, aunque sea vacío, o al usuario le
-	// queda el botón girando.
+	// The callback always has to be answered, even with an empty text, or the
+	// user is left with the button spinning.
 	defer b.answerCallback(callback.ID, "")
 
 	if callback.Message == nil {
@@ -80,21 +80,21 @@ func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQue
 		return
 	}
 
-	// La lista de géneros se trae una sola vez, acá, y no en el paso del género:
-	// así el usuario ve siempre la misma numeración y un API caído no corta la
-	// carga a mitad de camino.
+	// The genre list is fetched once, here, and not at the genre step: that way
+	// the user always sees the same numbering, and an API that is down does not
+	// cut the upload off halfway through.
 	sess := session{Stage: stageAwaitingTitle, Category: cat, Genres: b.genreNames(ctx)}
 	b.sessions.set(chatID, sess)
 
 	first, ok := stepFor(sess)
-	if !ok { // imposible: todo flujo arranca por el título
+	if !ok { // impossible: every flow starts with the title
 		b.send(chatID, "Something went wrong. Use /start to begin again.")
 		return
 	}
 	question := prompt(first, sess)
 
-	// Se edita el menú en lugar de mandar otro mensaje, así no se acumulan
-	// teclados viejos que el usuario puede volver a tocar.
+	// The menu is edited instead of sending another message, so old keyboards
+	// the user could tap again do not pile up.
 	edit := tgbotapi.NewEditMessageText(chatID, callback.Message.MessageID, question)
 	if _, err := b.api.Send(edit); err != nil {
 		log.Printf("error editing the menu: %v", err)
@@ -124,7 +124,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 	text := strings.TrimSpace(msg.Text)
 	if text == "" || st.assign == nil {
-		// Un sticker, una ubicación, o un paso que espera un archivo y no texto.
+		// A sticker, a location, or a step that expects a file and not text.
 		b.send(chatID, prompt(st, sess))
 		return
 	}
@@ -155,9 +155,9 @@ func (b *Bot) handleCommand(chatID int64, command string, sess session) {
 	}
 }
 
-// handleSkip deja el campo vacío y sigue. Antes /skip se reconocía pero caía
-// igual en la máquina de estados, así que el texto "/skip" terminaba guardado
-// como si fuera la respuesta.
+// handleSkip leaves the field empty and moves on. /skip used to be recognized
+// but fell through to the state machine anyway, so the text "/skip" ended up
+// stored as if it were the answer.
 func (b *Bot) handleSkip(chatID int64, sess session) {
 	st, ok := stepFor(sess)
 	if !ok {
@@ -171,10 +171,10 @@ func (b *Bot) handleSkip(chatID int64, sess session) {
 	b.advance(chatID, sess)
 }
 
-// handleMedia atiende los pasos que esperan un adjunto: la imagen de fondo y
-// el archivo final. Antes cualquier adjunto que no llegara en el paso del
-// archivo se rechazaba con "Pick a category first", incluso el fondo que el
-// bot acababa de pedir.
+// handleMedia serves the steps that expect an attachment: the background image
+// and the final file. Any attachment that did not arrive at the file step used
+// to be rejected with "Pick a category first", even the background the bot had
+// just asked for.
 func (b *Bot) handleMedia(ctx context.Context, msg *tgbotapi.Message, sess session, st step) {
 	chatID := msg.Chat.ID
 
@@ -190,27 +190,28 @@ func (b *Bot) handleMedia(ctx context.Context, msg *tgbotapi.Message, sess sessi
 	b.saveVideo(ctx, msg, sess, st)
 }
 
-// saveBackground guarda la imagen como background.<ext> dentro de la carpeta
-// del título, y deja seguir la conversación sin esperar la descarga.
+// saveBackground stores the image as background.<ext> inside the title's
+// folder, and lets the conversation carry on without waiting for the download.
 func (b *Bot) saveBackground(ctx context.Context, msg *tgbotapi.Message, sess session, st step) {
 	chatID := msg.Chat.ID
 
-	// Un video o un audio acá es casi siempre el archivo mandado de más temprano.
+	// A video or an audio here is almost always the file sent too early.
 	if len(msg.Photo) == 0 && msg.Document == nil {
 		b.send(chatID, "That doesn't look like an image.\n\n"+prompt(st, sess))
 		return
 	}
 
-	// La conversación avanza primero y la imagen se baja atrás. Si el usuario
-	// contesta el paso siguiente mientras todavía baja, la ruta puede perderse:
-	// es una ventana corta y no afecta al archivo, que ya quedó en disco.
+	// The conversation moves on first and the image is fetched behind it. If
+	// the user answers the next step while it is still downloading, the path
+	// can be lost: it is a short window and does not affect the file, which is
+	// already on disk.
 	b.advance(chatID, sess)
 	b.startDownload(ctx, msg, sess, downloadOpts{
 		baseName: "background",
 		kind:     "background",
 		onSaved: func(path string) {
 			b.sessions.update(chatID, func(cur *session) bool {
-				if cur.Title != sess.Title { // ya es otra subida
+				if cur.Title != sess.Title { // this is another upload already
 					return false
 				}
 				cur.Background = path
@@ -220,9 +221,10 @@ func (b *Bot) saveBackground(ctx context.Context, msg *tgbotapi.Message, sess se
 	})
 }
 
-// saveVideo guarda el archivo final. La sesión queda en este paso a propósito:
-// se pueden mandar varios archivos seguidos para el mismo título (el video y
-// sus subtítulos, o los episodios de una temporada).
+// saveVideo stores the final file and publishes the item in the catalog. The
+// session stays on this step on purpose: several files can be sent in a row for
+// the same title (the video and its subtitles, or the episodes of a season),
+// and each one publishes its own item.
 func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session, st step) {
 	chatID := msg.Chat.ID
 
@@ -231,14 +233,26 @@ func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session
 		return
 	}
 
-	b.startDownload(ctx, msg, sess, downloadOpts{baseName: sess.Title, kind: "video"})
+	b.startDownload(ctx, msg, sess, downloadOpts{
+		baseName: sess.Title,
+		kind:     video,
+		onSaved: func(path string) {
+			// The background is fetched in parallel and may have finished after
+			// the conversation moved on: the session is re-read so the item is
+			// not published without its bg_image.
+			if cur := b.sessions.get(chatID); cur.Title == sess.Title && cur.Background != "" {
+				sess.Background = cur.Background
+			}
+			b.publishCatalogItem(ctx, chatID, b.buildCatalogItem(sess, path))
+		},
+	})
 }
 
-// advance mueve la sesión al paso siguiente y lo pregunta.
+// advance moves the session to the next step and asks it.
 func (b *Bot) advance(chatID int64, sess session) {
 	next, ok := nextStep(sess)
 	if !ok {
-		// El último paso espera el archivo y no avanza solo.
+		// The last step waits for the file and does not advance on its own.
 		b.sessions.set(chatID, sess)
 		return
 	}
@@ -257,40 +271,39 @@ func mainMenu() tgbotapi.InlineKeyboardMarkup {
 	)
 }
 
-// --- Flujo de la conversación -------------------------------------------
+// --- Conversation flow ---------------------------------------------------
 
-// step es un paso de la conversación: qué se pregunta, dónde va la respuesta y
-// si se puede saltear. El flujo vive en una tabla en vez de en un switch con
-// un case por etapa, donde cada bloque repetía la misma asignación y era fácil
-// (y así pasó) copiar la del paso anterior.
+// step is one step of the conversation: what is asked, where the answer goes
+// and whether it can be skipped. The flow lives in a table instead of a switch
+// with one case per stage, where every block repeated the same assignment and
+// it was easy (and it did happen) to copy the one from the previous step.
 type step struct {
 	stage stage
 
-	// ask arma la pregunta; recibe la sesión para poder nombrar la categoría o
-	// el título ya cargado.
+	// ask builds the question; it takes the session so it can name the category
+	// or the title already entered.
 	ask func(sess session) string
 
-	// assign valida y guarda la respuesta de texto. El error se le muestra al
-	// usuario tal cual y el paso se vuelve a preguntar. nil significa que el
-	// paso no acepta texto.
+	// assign validates and stores the text answer. The error is shown to the
+	// user as is and the step is asked again. nil means the step takes no text.
 	assign func(sess *session, text string) error
 
-	// media indica que el paso acepta un adjunto.
+	// media marks a step that accepts an attachment.
 	media bool
 
-	// skippable habilita /skip.
+	// skippable enables /skip.
 	skippable bool
 }
 
-// metadataSteps es lo que se le pide a cualquier categoría.
+// metadataSteps is what every category is asked for.
 var metadataSteps = []step{
 	{
 		stage: stageAwaitingTitle,
 		ask: func(sess session) string {
 			return fmt.Sprintf("Send me the title of the %s.", sess.Category.label())
 		},
-		// El título es el nombre de la carpeta destino: no se puede saltear ni
-		// aceptar sin sanear.
+		// The title is the name of the destination folder: it can neither be
+		// skipped nor accepted without sanitizing.
 		assign: func(sess *session, text string) error {
 			title := storage.SanitizeName(text)
 			if title == "" {
@@ -323,7 +336,7 @@ var metadataSteps = []step{
 		stage: stageAwaitingGenre,
 		ask: func(sess session) string {
 			if len(sess.Genres) == 0 {
-				// Sin lista del API se acepta lo que el usuario escriba.
+				// Without the API's list, whatever the user types is accepted.
 				return "Send me the genres, separated by comma."
 			}
 
@@ -341,7 +354,16 @@ var metadataSteps = []step{
 		stage:     stageAwaitingRating,
 		ask:       ask("Send me the rating."),
 		skippable: false,
-		assign:    func(sess *session, text string) error { sess.Rating = text; return nil },
+		// The catalog stores it as a number: loose text here used to end up
+		// published as rating 0 without anyone noticing.
+		assign: func(sess *session, text string) error {
+			rating, err := strconv.ParseFloat(strings.Replace(text, ",", ".", 1), 64)
+			if err != nil || rating < 0 || rating > 10 {
+				return errors.New("That is not a valid rating. Send a number between 0 and 10, like 8.1.")
+			}
+			sess.Rating = strconv.FormatFloat(rating, 'f', -1, 64)
+			return nil
+		},
 	},
 	{
 		stage:     stageAwaitingBackground,
@@ -352,8 +374,8 @@ var metadataSteps = []step{
 	},
 }
 
-// episodeSteps solo aplica a series: una película no tiene temporada ni
-// episodio, y antes las preguntaba igual.
+// episodeSteps only applies to TV shows: a movie has no season or episode, and
+// it used to be asked for them anyway.
 var episodeSteps = []step{
 	{
 		stage:  stageAwaitingSeasonNumber,
@@ -400,7 +422,7 @@ var episodeSteps = []step{
 	},
 }
 
-// fileSteps cierra cualquier flujo: lo último que se pide es el archivo.
+// fileSteps closes every flow: the last thing asked for is the file.
 var fileSteps = []step{
 	{
 		stage: stageAwaitingFile,
@@ -431,8 +453,8 @@ func flowFor(cat category) []step {
 	return movieFlow
 }
 
-// stepFor ubica el paso en el que está la sesión. Devuelve false si la sesión
-// está vacía o vencida.
+// stepFor locates the step the session is on. It returns false when the
+// session is empty or expired.
 func stepFor(sess session) (step, bool) {
 	for _, st := range flowFor(sess.Category) {
 		if st.stage == sess.Stage {
@@ -452,8 +474,8 @@ func nextStep(sess session) (step, bool) {
 	return step{}, false
 }
 
-// prompt arma el texto del paso y recuerda /skip donde corresponde, así el
-// recordatorio no se puede olvidar en una pregunta suelta.
+// prompt builds the step's text and mentions /skip where it applies, so the
+// reminder cannot be forgotten on a single question.
 func prompt(st step, sess session) string {
 	text := st.ask(sess)
 	if st.skippable {
@@ -466,7 +488,7 @@ func ask(text string) func(session) string {
 	return func(session) string { return text }
 }
 
-// wholeNumber guarda un entero no negativo normalizado ("07" queda "7").
+// wholeNumber stores a normalized non-negative integer ("07" becomes "7").
 func wholeNumber(label string, field func(*session) *string) func(*session, string) error {
 	return func(sess *session, text string) error {
 		n, err := strconv.Atoi(text)
@@ -478,17 +500,17 @@ func wholeNumber(label string, field func(*session) *string) func(*session, stri
 	}
 }
 
-// assignGenres traduce los números que eligió el usuario a los nombres que le
-// mostró el paso. Se guardan los nombres y no los números porque la numeración
-// es solo de la conversación: el API no la conoce.
+// assignGenres translates the numbers the user picked into the names the step
+// showed them. The names are stored and not the numbers because the numbering
+// belongs to the conversation only: the API does not know it.
 func assignGenres(sess *session, text string) error {
 	if len(sess.Genres) == 0 {
 		sess.Genre = text
 		return nil
 	}
 
-	// Se acepta "1 3" y también "1, 3": pedir una separación exacta es hacer
-	// fallar la carga por una coma.
+	// Both "1 3" and "1, 3" are accepted: demanding an exact separator means
+	// failing an upload over a comma.
 	numbers := strings.FieldsFunc(text, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
 	})
@@ -503,7 +525,7 @@ func assignGenres(sess *session, text string) error {
 		if err != nil || n < 1 || n > len(sess.Genres) {
 			return fmt.Errorf("%q is not on the list. Send numbers between 1 and %d.", number, len(sess.Genres))
 		}
-		if seen[n] { // repetir un número no duplica el género
+		if seen[n] { // repeating a number does not duplicate the genre
 			continue
 		}
 		seen[n] = true
@@ -514,8 +536,8 @@ func assignGenres(sess *session, text string) error {
 	return nil
 }
 
-// timecode valida la forma del tiempo y lo guarda tal cual: alcanza con
-// rechazar cualquier cosa, sin adivinar en qué unidad lo espera el reproductor.
+// timecode validates the shape of the time and stores it as is: rejecting
+// anything else is enough, without guessing which unit the player expects.
 func timecode(field func(*session) *string) func(*session, string) error {
 	return func(sess *session, text string) error {
 		if !validTimecode(text) {
@@ -526,15 +548,15 @@ func timecode(field func(*session) *string) func(*session, string) error {
 	}
 }
 
-// validTimecode acepta "90", "1:30" y "1:02:03".
+// validTimecode accepts "90", "1:30" and "1:02:03".
 func validTimecode(text string) bool {
 	parts := strings.Split(text, ":")
 	if len(parts) > 3 {
 		return false
 	}
 	for i, part := range parts {
-		// Los segundos sueltos pueden ser cualquier cantidad; con ":" cada
-		// grupo es de una o dos cifras.
+		// Bare seconds can be any amount; with ":" each group is one or two
+		// digits.
 		maxLen := 2
 		if len(parts) == 1 {
 			maxLen = 6
@@ -554,8 +576,8 @@ func validTimecode(text string) bool {
 	return true
 }
 
-// summary lista lo cargado hasta ahora, para que el usuario lo pueda revisar
-// antes de mandar un archivo que puede pesar varios GB.
+// summary lists what has been entered so far, so the user can check it before
+// sending a file that may weigh several GB.
 func (s session) summary() string {
 	fields := []struct{ label, value string }{
 		{"Title", s.Title},
@@ -585,16 +607,16 @@ func (s session) summary() string {
 }
 
 const (
-	// genreTTL evita pedirle la lista al API en cada carga.
+	// genreTTL avoids asking the API for the list on every upload.
 	genreTTL = 10 * time.Minute
-	// genreTimeout acota la espera: el usuario está mirando el menú.
+	// genreTimeout caps the wait: the user is staring at the menu.
 	genreTimeout = 10 * time.Second
 )
 
-// genreNames devuelve los nombres de género para numerar en el paso del género.
-// Si el API no contesta se devuelve lo último que se pudo traer (o nil, y
-// entonces el paso pide el texto a mano): quedarse sin géneros no justifica
-// cortar una carga.
+// genreNames returns the genre names to number at the genre step. If the API
+// does not answer, the last ones fetched are returned (or nil, and then the
+// step asks for the text by hand): running out of genres is no reason to cut an
+// upload short.
 func (b *Bot) genreNames(ctx context.Context) []string {
 	b.genresMu.Lock()
 	defer b.genresMu.Unlock()
@@ -608,7 +630,7 @@ func (b *Bot) genreNames(ctx context.Context) []string {
 
 	genres, err := b.fetchGenreData(ctx)
 	if err != nil {
-		log.Printf("no se pudo traer la lista de géneros: %v", err)
+		log.Printf("could not fetch the genre list: %v", err)
 		return b.genres
 	}
 

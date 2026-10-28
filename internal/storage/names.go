@@ -1,5 +1,5 @@
-// Package storage resuelve los nombres de archivo que vienen de Telegram y
-// deja los archivos en disco sin pisar nada ni escribir a medias.
+// Package storage resolves the file names coming from Telegram and puts the
+// files on disk without overwriting anything or leaving half-written files.
 package storage
 
 import (
@@ -11,25 +11,25 @@ import (
 )
 
 const (
-	// MaxNameLen limita nombres de archivo y carpeta (en runas, no en bytes)
-	// para no pasarse del límite del sistema de archivos.
+	// MaxNameLen caps file and folder names (in runes, not bytes) so they stay
+	// within the file system's limit.
 	MaxNameLen = 120
 
-	// maxDedupeAttempts es cuántos sufijos " (n)" se prueban antes de rendirse.
+	// maxDedupeAttempts is how many " (n)" suffixes are tried before giving up.
 	maxDedupeAttempts = 1000
 )
 
-// unsafeNameChars son los caracteres que no pueden aparecer en un nombre de
-// archivo: separadores de ruta (traversal) y los que rompen en Windows/SMB.
+// unsafeNameChars are the characters that cannot appear in a file name: path
+// separators (traversal) and the ones that break on Windows/SMB.
 const unsafeNameChars = `/\:*?"<>|`
 
-// SanitizeName convierte texto que viene de Telegram en un nombre de archivo o
-// carpeta seguro. Nunca devuelve algo que pueda escapar del directorio destino.
-// Si no queda nada utilizable devuelve "".
+// SanitizeName turns text coming from Telegram into a safe file or folder
+// name. It never returns something that could escape the destination
+// directory. If nothing usable is left it returns "".
 func SanitizeName(name string) string {
 	name = strings.Map(func(r rune) rune {
 		switch {
-		case r < 0x20 || r == 0x7f: // caracteres de control
+		case r < 0x20 || r == 0x7f: // control characters
 			return -1
 		case strings.ContainsRune(unsafeNameChars, r):
 			return '_'
@@ -38,7 +38,7 @@ func SanitizeName(name string) string {
 		}
 	}, name)
 
-	// Los puntos y espacios al borde generan nombres ocultos, "." o "..".
+	// Leading and trailing dots and spaces produce hidden names, "." or "..".
 	name = strings.Trim(strings.TrimSpace(name), " .")
 	if name == "" {
 		return ""
@@ -46,14 +46,14 @@ func SanitizeName(name string) string {
 	return truncateName(name)
 }
 
-// truncateName recorta a MaxNameLen runas conservando la extensión.
+// truncateName trims to MaxNameLen runes, keeping the extension.
 func truncateName(name string) string {
 	if utf8.RuneCountInString(name) <= MaxNameLen {
 		return name
 	}
 
 	ext := filepath.Ext(name)
-	if utf8.RuneCountInString(ext) > 10 { // no parece una extensión real
+	if utf8.RuneCountInString(ext) > 10 { // does not look like a real extension
 		ext = ""
 	}
 
@@ -70,8 +70,8 @@ func truncateName(name string) string {
 	return trimmed + ext
 }
 
-// UniquePath agrega " (1)", " (2)"... si el destino ya existe, para no pisar
-// un archivo previo.
+// UniquePath appends " (1)", " (2)"... when the destination already exists, so
+// an earlier file is never overwritten.
 func UniquePath(path string) (string, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return path, nil
@@ -87,5 +87,5 @@ func UniquePath(path string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("demasiados archivos con el nombre %q", filepath.Base(path))
+	return "", fmt.Errorf("too many files named %q", filepath.Base(path))
 }

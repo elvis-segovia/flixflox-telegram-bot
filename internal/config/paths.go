@@ -7,15 +7,16 @@ import (
 	"strings"
 )
 
-// FileURL arma la URL de descarga a partir del file_path que devuelve getFile.
+// FileURL builds the download URL from the file_path returned by getFile.
 func (c *Config) FileURL(serverFilePath string) string {
 	return fmt.Sprintf(c.TelegramFileEndpoint, c.BotToken, strings.TrimPrefix(serverFilePath, "/"))
 }
 
-// HostPath traduce el file_path que devuelve getFile (una ruta absoluta dentro
-// del contenedor, en modo local) a la ruta equivalente en el host.
-// Devuelve false si el file_path no cae bajo ServerWorkDir, que es el caso del
-// Bot API oficial, donde hay que bajar el archivo por HTTP.
+// HostPath translates the file_path returned by getFile (an absolute path
+// inside the container, in local mode) into the equivalent path on the host.
+// It returns false when the file_path does not fall under ServerWorkDir, which
+// is the case with the official Bot API, where the file must be fetched over
+// HTTP.
 func (c *Config) HostPath(serverFilePath string) (string, bool) {
 	if serverFilePath == "" || !filepath.IsAbs(serverFilePath) {
 		return "", false

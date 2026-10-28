@@ -13,36 +13,36 @@ func TestSanitizeNameBlocksTraversal(t *testing.T) {
 		input string
 		want  string
 	}{
-		// Los separadores pasan a "_" y los puntos del borde se recortan.
-		{"ruta relativa", "../../etc/passwd", "_.._etc_passwd"},
-		{"ruta absoluta", "/etc/passwd", "_etc_passwd"},
+		// Separators become "_" and the dots at the edges are trimmed.
+		{"relative path", "../../etc/passwd", "_.._etc_passwd"},
+		{"absolute path", "/etc/passwd", "_etc_passwd"},
 		{"backslash", `..\..\windows\system32`, "_.._windows_system32"},
-		{"solo puntos", "..", ""},
-		{"punto", ".", ""},
-		{"vacío", "", ""},
-		{"solo espacios", "   ", ""},
-		{"archivo oculto", ".bashrc", "bashrc"},
-		{"control chars", "pelicula\n\t\x00.mkv", "pelicula.mkv"},
-		{"nombre normal", "Blade Runner 2049.mkv", "Blade Runner 2049.mkv"},
-		{"acentos", "Amélie (2001).mkv", "Amélie (2001).mkv"},
+		{"only dots", "..", ""},
+		{"single dot", ".", ""},
+		{"empty", "", ""},
+		{"only spaces", "   ", ""},
+		{"hidden file", ".bashrc", "bashrc"},
+		{"control chars", "movie\n\t\x00.mkv", "movie.mkv"},
+		{"ordinary name", "Blade Runner 2049.mkv", "Blade Runner 2049.mkv"},
+		{"accents", "Amélie (2001).mkv", "Amélie (2001).mkv"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := SanitizeName(tt.input)
 			if got != tt.want {
-				t.Errorf("SanitizeName(%q) = %q, se esperaba %q", tt.input, got, tt.want)
+				t.Errorf("SanitizeName(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 			if got == "" {
 				return
 			}
-			// Invariante central: el resultado nunca puede escapar del destino.
+			// Core invariant: the result can never escape the destination.
 			joined := filepath.Join("/uploads", got)
 			if !strings.HasPrefix(joined, "/uploads/") {
-				t.Errorf("SanitizeName(%q) escapó del directorio: %q", tt.input, joined)
+				t.Errorf("SanitizeName(%q) escaped the directory: %q", tt.input, joined)
 			}
 			if strings.ContainsAny(got, `/\`) {
-				t.Errorf("SanitizeName(%q) = %q conserva separadores de ruta", tt.input, got)
+				t.Errorf("SanitizeName(%q) = %q keeps path separators", tt.input, got)
 			}
 		})
 	}
@@ -53,10 +53,10 @@ func TestSanitizeNameTruncatesKeepingExtension(t *testing.T) {
 
 	got := SanitizeName(long)
 	if n := utf8.RuneCountInString(got); n > MaxNameLen {
-		t.Errorf("nombre de %d runas, el máximo es %d", n, MaxNameLen)
+		t.Errorf("name of %d runes, the maximum is %d", n, MaxNameLen)
 	}
 	if filepath.Ext(got) != ".mkv" {
-		t.Errorf("se perdió la extensión: %q", got)
+		t.Errorf("the extension was lost: %q", got)
 	}
 }
 
@@ -69,7 +69,7 @@ func TestUniquePathAvoidsOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != target {
-		t.Fatalf("con el destino libre se esperaba %q, se obtuvo %q", target, got)
+		t.Fatalf("with the destination free, want %q, got %q", target, got)
 	}
 
 	if err := writeAtomic(target, strings.NewReader("data")); err != nil {
@@ -82,6 +82,6 @@ func TestUniquePathAvoidsOverwrite(t *testing.T) {
 	}
 	want := filepath.Join(dir, "movie (1).mkv")
 	if got != want {
-		t.Errorf("UniquePath = %q, se esperaba %q", got, want)
+		t.Errorf("UniquePath = %q, want %q", got, want)
 	}
 }

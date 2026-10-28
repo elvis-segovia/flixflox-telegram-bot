@@ -1,12 +1,12 @@
-# Secretos
+# Secrets
 .env
 
-# Binarios compilados y reportes
+# Compiled binaries and reports
 /bin/
 /flixflox-telegram-bot
 coverage.out
 
-# Datos en runtime: el cache del Bot API local incluye el token en el nombre
-# de la carpeta, y uploads/ puede pesar varios GB.
+# Runtime data: the local Bot API cache includes the token in the folder name,
+# and uploads/ can weigh several GB.
 /telegram-data/
 /uploads/

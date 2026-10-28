@@ -7,5 +7,5 @@ services:
     volumes:
       - ./telegram-data:/var/lib/telegram-bot-api
     ports:
-      # Solo loopback: el servidor expone el token en las URLs de archivos.
+      # Loopback only: the server exposes the token in the file URLs.
       - "127.0.0.1:8081:8081"

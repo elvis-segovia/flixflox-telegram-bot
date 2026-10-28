@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// sessionTTL descarta conversaciones abandonadas para que el estado no quede
-// pegado si alguien elige "Movie" y nunca manda el archivo.
+// sessionTTL drops abandoned conversations so the state does not stay stuck
+// when someone picks "Movie" and never sends the file.
 const sessionTTL = time.Hour
 
 type stage int
@@ -36,7 +36,7 @@ const (
 	categoryTVShow category = "tv-shows"
 )
 
-// dir es el subdirectorio de uploads/ donde cae cada categoría.
+// dir is the subdirectory of uploads/ where each category lands.
 func (c category) dir() string {
 	switch c {
 	case categoryMovie:
@@ -66,9 +66,9 @@ type session struct {
 	Description string
 	ReleaseYear string
 	Genre       string
-	// Genres es la lista que le mostró el bot al elegir categoría. Queda fija
-	// durante toda la carga para que los números que mande el usuario sigan
-	// apuntando a los mismos géneros aunque el API cambie mientras tanto.
+	// Genres is the list the bot showed when the category was picked. It stays
+	// fixed for the whole upload so the numbers the user sends keep pointing at
+	// the same genres even if the API changes in the meantime.
 	Genres                  []string
 	Rating                  string
 	Background              string
@@ -82,7 +82,7 @@ type session struct {
 	UpdatedAt               time.Time
 }
 
-// sessionStore guarda el estado de cada chat. Es seguro para uso concurrente.
+// sessionStore keeps the state of each chat. It is safe for concurrent use.
 type sessionStore struct {
 	mu   sync.Mutex
 	data map[int64]*session
@@ -92,7 +92,7 @@ func newSessionStore() *sessionStore {
 	return &sessionStore{data: make(map[int64]*session)}
 }
 
-// get devuelve una copia del estado del chat. Una sesión vencida se descarta.
+// get returns a copy of the chat's state. An expired session is discarded.
 func (s *sessionStore) get(chatID int64) session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,9 +118,9 @@ func (s *sessionStore) set(chatID int64, sess session) {
 	s.sweepLocked()
 }
 
-// update aplica fn sobre la sesión guardada, si todavía existe y no venció.
-// Lo usa la descarga de la imagen de fondo, que termina después de que la
-// conversación siguió adelante. fn devuelve false si no tocó nada.
+// update applies fn to the stored session, if it still exists and has not
+// expired. It is used by the background image download, which finishes after
+// the conversation has moved on. fn returns false when it changed nothing.
 func (s *sessionStore) update(chatID int64, fn func(*session) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,8 +141,8 @@ func (s *sessionStore) clear(chatID int64) {
 	delete(s.data, chatID)
 }
 
-// sweepLocked limpia sesiones vencidas para que el mapa no crezca sin control.
-// El llamador debe tener el mutex tomado.
+// sweepLocked drops expired sessions so the map does not grow without bound.
+// The caller must hold the mutex.
 func (s *sessionStore) sweepLocked() {
 	if len(s.data) < 64 {
 		return

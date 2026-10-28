@@ -3,39 +3,39 @@ PKG    := ./cmd/flixflox-bot
 
 .PHONY: help build run test cover fmt vet tidy clean up down logs
 
-help: ## Lista los targets disponibles
+help: ## List the available targets
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
 
-build: ## Compila el bot en bin/
+build: ## Build the bot into bin/
 	go build -o $(BINARY) $(PKG)
 
-run: ## Corre el bot leyendo .env
+run: ## Run the bot reading .env
 	set -a && . ./.env && set +a && go run $(PKG)
 
-test: ## Corre los tests con el detector de carreras
+test: ## Run the tests with the race detector
 	go test -race ./...
 
-cover: ## Corre los tests y abre el reporte de cobertura
+cover: ## Run the tests and open the coverage report
 	go test -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out
 
-fmt: ## Formatea el código
+fmt: ## Format the code
 	go fmt ./...
 
-vet: ## Análisis estático
+vet: ## Static analysis
 	go vet ./...
 
-tidy: ## Sincroniza go.mod / go.sum
+tidy: ## Sync go.mod / go.sum
 	go mod tidy
 
-clean: ## Borra binarios y reportes
+clean: ## Delete binaries and reports
 	rm -rf bin coverage.out
 
-up: ## Levanta el Bot API local
+up: ## Start the local Bot API
 	docker compose up -d
 
-down: ## Baja el Bot API local
+down: ## Stop the local Bot API
 	docker compose down
 
-logs: ## Sigue los logs del Bot API local
+logs: ## Follow the local Bot API logs
 	docker compose logs -f

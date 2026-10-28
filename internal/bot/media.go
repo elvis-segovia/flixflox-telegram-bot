@@ -4,7 +4,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// mediaFile normaliza los distintos tipos de adjunto de Telegram.
+// mediaFile normalizes Telegram's different attachment types.
 type mediaFile struct {
 	fileID       string
 	fileName     string
@@ -13,7 +13,7 @@ type mediaFile struct {
 
 func extractMedia(msg *tgbotapi.Message) (mediaFile, bool) {
 	switch {
-	case msg.Document != nil: // se chequea primero: archivos sin comprimir
+	case msg.Document != nil: // checked first: uncompressed files
 		return mediaFile{
 			fileID:       msg.Document.FileID,
 			fileName:     msg.Document.FileName,
@@ -35,7 +35,7 @@ func extractMedia(msg *tgbotapi.Message) (mediaFile, bool) {
 		}, true
 
 	case len(msg.Photo) > 0:
-		// La última entrada es la de mayor resolución.
+		// The last entry is the one with the highest resolution.
 		photo := msg.Photo[len(msg.Photo)-1]
 		return mediaFile{
 			fileID:       photo.FileID,

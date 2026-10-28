@@ -12,17 +12,17 @@ func TestMoveFileRemovesSource(t *testing.T) {
 	src := filepath.Join(dir, "src.bin")
 	dst := filepath.Join(dir, "dst.bin")
 
-	if err := writeAtomic(src, strings.NewReader("contenido")); err != nil {
+	if err := writeAtomic(src, strings.NewReader("contents")); err != nil {
 		t.Fatal(err)
 	}
 	if err := MoveFile(src, dst); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(dst)
-	if err != nil || string(data) != "contenido" {
-		t.Errorf("destino = %q, err = %v", data, err)
+	if err != nil || string(data) != "contents" {
+		t.Errorf("destination = %q, err = %v", data, err)
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("el archivo original no se borró")
+		t.Error("the original file was not deleted")
 	}
 }

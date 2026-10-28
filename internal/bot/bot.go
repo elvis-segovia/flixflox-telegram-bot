@@ -1,4 +1,5 @@
-// Package bot conecta con el Bot API, recibe los updates y los despacha.
+// Package bot connects to the Bot API, receives the updates and dispatches
+// them.
 package bot
 
 import (
@@ -15,25 +16,26 @@ import (
 	"flixflox-telegram-bot/internal/config"
 )
 
-// Bot es el estado compartido del bot: configuración, cliente del API y las
-// sesiones en curso.
+// Bot is the bot's shared state: configuration, API client and the uploads in
+// progress.
 type Bot struct {
 	cfg        *config.Config
 	api        *tgbotapi.BotAPI
 	sessions   *sessionStore
 	httpClient *http.Client
 
-	// La lista de géneros la define el API y casi no cambia, así que se cachea
-	// en vez de pedirla en cada carga.
+	// The genre list is defined by the API and hardly ever changes, so it is
+	// cached instead of being fetched on every upload.
 	genresMu sync.Mutex
 	genres   []string
 	genresAt time.Time
 
-	// wg espera a las descargas en curso cuando el bot se apaga.
+	// wg waits for the downloads in flight when the bot shuts down.
 	wg sync.WaitGroup
 }
 
-// New abre la conexión con el Bot API y deja el bot listo para recibir updates.
+// New opens the connection with the Bot API and leaves the bot ready to
+// receive updates.
 func New(cfg *config.Config, httpClient *http.Client) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPIWithAPIEndpoint(cfg.BotToken, cfg.TelegramAPIEndpoint)
 	if err != nil {
@@ -41,11 +43,11 @@ func New(cfg *config.Config, httpClient *http.Client) (*Bot, error) {
 	}
 	api.Debug = cfg.Debug
 
-	// Sin lista de autorizados cualquiera puede mandarle archivos al bot, así
-	// que no se arranca: se devuelve el error en vez de matar el proceso desde
-	// una función que ya reporta errores.
+	// Without an allow list anyone could send files to the bot, so it does not
+	// start: the error is returned instead of killing the process from a
+	// function that already reports errors.
 	if !cfg.HasAllowList() {
-		return nil, errors.New("ALLOWED_USER_IDS está vacío: cualquiera podría usar el bot")
+		return nil, errors.New("ALLOWED_USER_IDS is empty: anyone could use the bot")
 	}
 
 	log.Printf("Connect as @%s", api.Self.UserName)
@@ -53,8 +55,8 @@ func New(cfg *config.Config, httpClient *http.Client) (*Bot, error) {
 	return &Bot{cfg: cfg, api: api, sessions: newSessionStore(), httpClient: httpClient}, nil
 }
 
-// Run procesa updates hasta que ctx se cancela. Al cortar se espera a que cada
-// descarga en curso limpie su archivo temporal.
+// Run processes updates until ctx is cancelled. On shutdown it waits for each
+// download in flight to clean up its temporary file.
 func (b *Bot) Run(ctx context.Context) error {
 	if err := os.MkdirAll(b.cfg.DownloadDir, 0o755); err != nil {
 		return err
@@ -66,7 +68,7 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		log.Print("apagando, cancelando descargas en curso...")
+		log.Print("shutting down, cancelling the downloads in flight...")
 		b.api.StopReceivingUpdates()
 	}()
 
@@ -75,6 +77,6 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 
 	b.wg.Wait()
-	log.Print("listo")
+	log.Print("done")
 	return nil
 }

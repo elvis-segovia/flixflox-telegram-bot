@@ -1,5 +1,5 @@
-// Command flixflox-bot recibe películas y series por Telegram y las guarda
-// ordenadas en disco.
+// Command flixflox-bot receives movies and TV shows over Telegram and stores
+// them tidily on disk.
 package main
 
 import (
@@ -39,8 +39,8 @@ func run() error {
 		return err
 	}
 
-	// Ctrl+C o SIGTERM cortan el receptor de updates y cancelan las descargas
-	// en curso; se espera a que cada una limpie su archivo temporal.
+	// Ctrl+C or SIGTERM stops the update receiver and cancels the downloads in
+	// flight; each one is given time to clean up its temporary file.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

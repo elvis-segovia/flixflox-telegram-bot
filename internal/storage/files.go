@@ -8,9 +8,10 @@ import (
 	"os"
 )
 
-// MoveFile mueve src a dst, primero con rename (instantáneo si comparten
-// sistema de archivos) y si no copiando y borrando el original. Liberar el
-// original importa: el servidor local no limpia su cache por sí solo.
+// MoveFile moves src to dst, first with a rename (instantaneous when they
+// share a file system) and, failing that, by copying and deleting the
+// original. Freeing the original matters: the local server does not clean its
+// cache on its own.
 func MoveFile(src, dst string) error {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
@@ -20,14 +21,16 @@ func MoveFile(src, dst string) error {
 		return err
 	}
 	if err := os.Remove(src); err != nil {
-		// El archivo ya está a salvo en destino; esto es solo basura que queda.
-		return fmt.Errorf("copiado, pero no se pudo borrar el original: %w", err)
+		// The file is already safe at the destination; this is only leftover
+		// garbage.
+		return fmt.Errorf("copied, but the original could not be deleted: %w", err)
 	}
 	return nil
 }
 
-// copyFile copia src a dst de forma atómica: escribe a un temporal .part y
-// recién al final lo renombra, así nunca queda un archivo a medias en uploads/.
+// copyFile copies src to dst atomically: it writes to a .part temporary file
+// and only renames it at the end, so a half-written file never shows up in
+// uploads/.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -38,8 +41,8 @@ func copyFile(src, dst string) error {
 	return writeAtomic(dst, in)
 }
 
-// DownloadFile baja el archivo por HTTP. Solo hace falta contra el Bot API
-// oficial o si el volumen local no está montado.
+// DownloadFile fetches the file over HTTP. It is only needed against the
+// official Bot API, or when the local volume is not mounted.
 func DownloadFile(ctx context.Context, url, dst string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -53,7 +56,7 @@ func DownloadFile(ctx context.Context, url, dst string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("descarga falló con estado %s", resp.Status)
+		return fmt.Errorf("download failed with status %s", resp.Status)
 	}
 	return writeAtomic(dst, resp.Body)
 }
@@ -71,8 +74,8 @@ func writeAtomic(dst string, r io.Reader) error {
 		os.Remove(tmp)
 		return err
 	}
-	// Cerrar explícitamente antes del rename: io.Copy puede dejar datos en el
-	// buffer del SO y Close es el que reporta errores de escritura (disco lleno).
+	// Close explicitly before the rename: io.Copy can leave data in the OS
+	// buffer, and Close is what reports write errors (a full disk).
 	if err := out.Close(); err != nil {
 		os.Remove(tmp)
 		return err

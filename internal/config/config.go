@@ -1,6 +1,6 @@
-// Package config carga y valida los parámetros de ejecución del bot. Todo
-// viene de variables de entorno: el token jamás debe quedar escrito en el
-// código fuente.
+// Package config loads and validates the bot's runtime parameters. Everything
+// comes from environment variables: the token must never end up written in the
+// source code.
 package config
 
 import (
@@ -14,20 +14,20 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
-// Config agrupa los parámetros de ejecución.
+// Config groups the runtime parameters.
 type Config struct {
 	BotToken       string `envconfig:"BOT_TOKEN"`
 	AllowedUserIDs string `envconfig:"ALLOWED_USER_IDS"`
 	DownloadDir    string `envconfig:"DOWNLOAD_DIR" default:"./uploads"`
 
-	// APIEndpoint y FileEndpoint apuntan al Bot API local (o al oficial).
-	// Ambos deben contener dos verbos %s: token y método/ruta.
+	// APIEndpoint and FileEndpoint point at the local Bot API (or the official
+	// one). Both must contain two %s verbs: token and method/path.
 	TelegramAPIEndpoint  string `envconfig:"TELEGRAM_API_ENDPOINT"`
 	TelegramFileEndpoint string `envconfig:"TELEGRAM_FILE_ENDPOINT"`
 
-	// TelegramDataDir es el volumen del servidor local visto desde el host,
-	// y ServerWorkDir la misma carpeta vista desde adentro del contenedor.
-	// Con los dos se traduce el file_path que devuelve getFile a una ruta real.
+	// TelegramDataDir is the local server's volume as seen from the host, and
+	// ServerWorkDir the same folder as seen from inside the container. With
+	// both, the file_path returned by getFile translates to a real path.
 	TelegramDataDir string `envconfig:"TELEGRAM_DATA_DIR" default:"./telegram-data"`
 	ServerWorkDir   string `envconfig:"TELEGRAM_SERVER_WORK_DIR" default:"/var/lib/telegram-bot-api"`
 
@@ -35,14 +35,14 @@ type Config struct {
 
 	Debug bool
 
-	// allowedUsers es AllowedUserIDs ya parseado. Se arma una sola vez en Load
-	// y se consulta en cada update, que es la ruta caliente.
+	// allowedUsers is AllowedUserIDs already parsed. It is built once in Load
+	// and read on every update, which is the hot path.
 	allowedUsers map[int64]struct{}
 }
 
 const envPrefix = "FLIXFLOX"
 
-// Load arma la configuración desde el entorno y la valida.
+// Load builds the configuration from the environment and validates it.
 func Load() (*Config, error) {
 	var cfg Config
 
@@ -77,17 +77,17 @@ func (c *Config) validate() error {
 		"TELEGRAM_FILE_ENDPOINT": c.TelegramFileEndpoint,
 	} {
 		if strings.Count(endpoint, "%s") != 2 {
-			return fmt.Errorf("%s debe contener exactamente dos %%s (token y ruta), se recibió %q", name, endpoint)
+			return fmt.Errorf("%s must contain exactly two %%s (token and path), got %q", name, endpoint)
 		}
 	}
 	if c.DownloadDir == "" {
-		return errors.New("DOWNLOAD_DIR no puede estar vacío")
+		return errors.New("DOWNLOAD_DIR cannot be empty")
 	}
 	return nil
 }
 
-// IsAllowed indica si el usuario puede operar el bot. Con la lista vacía
-// cualquiera puede usarlo: por eso bot.New() se niega a arrancar así.
+// IsAllowed reports whether the user may operate the bot. With an empty list
+// anyone can use it: that is why bot.New() refuses to start like that.
 func (c *Config) IsAllowed(userID int64) bool {
 	if len(c.allowedUsers) == 0 {
 		return true
@@ -96,17 +96,17 @@ func (c *Config) IsAllowed(userID int64) bool {
 	return ok
 }
 
-// HasAllowList indica si hay al menos un usuario autorizado. Se chequea al
-// arrancar: sin lista, IsAllowed deja pasar a cualquiera.
+// HasAllowList reports whether there is at least one authorized user. It is
+// checked at startup: without a list, IsAllowed lets anyone through.
 func (c *Config) HasAllowList() bool {
 	return len(c.allowedUsers) > 0
 }
 
-// parseUserIDs convierte "123, 456" en el conjunto de IDs autorizados.
+// parseUserIDs turns "123, 456" into the set of authorized IDs.
 //
-// Un elemento que no es un número corta el arranque en vez de descartarse en
-// silencio: la lista vacía significa "cualquiera puede usar el bot", así que
-// un ID mal escrito dejaría el bot abierto sin que nadie se entere.
+// An entry that is not a number aborts startup instead of being dropped
+// silently: an empty list means "anyone can use the bot", so a mistyped ID
+// would leave the bot wide open without anyone noticing.
 func parseUserIDs(raw string) (map[int64]struct{}, error) {
 	ids := make(map[int64]struct{})
 
@@ -118,7 +118,7 @@ func parseUserIDs(raw string) (map[int64]struct{}, error) {
 
 		id, err := strconv.ParseInt(part, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("ALLOWED_USER_IDS: %q no es un ID numérico", part)
+			return nil, fmt.Errorf("ALLOWED_USER_IDS: %q is not a numeric ID", part)
 		}
 		ids[id] = struct{}{}
 	}

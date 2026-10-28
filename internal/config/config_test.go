@@ -9,13 +9,13 @@ func TestParseUserIDs(t *testing.T) {
 		want    []int64
 		wantErr bool
 	}{
-		{"un id", "265596142", []int64{265596142}, false},
-		{"varios con espacios", " 1, 2 ,3 ", []int64{1, 2, 3}, false},
-		{"coma colgando", "1,2,", []int64{1, 2}, false},
-		{"vacío", "", nil, false},
-		{"id negativo", "-1001234", []int64{-1001234}, false}, // los grupos tienen ID negativo
-		{"no numérico", "1,dos,3", nil, true},
-		{"con comillas", `"123"`, nil, true},
+		{"one id", "265596142", []int64{265596142}, false},
+		{"several with spaces", " 1, 2 ,3 ", []int64{1, 2, 3}, false},
+		{"trailing comma", "1,2,", []int64{1, 2}, false},
+		{"empty", "", nil, false},
+		{"negative id", "-1001234", []int64{-1001234}, false}, // groups have a negative ID
+		{"not a number", "1,two,3", nil, true},
+		{"quoted", `"123"`, nil, true},
 	}
 
 	for _, tt := range tests {
@@ -23,7 +23,7 @@ func TestParseUserIDs(t *testing.T) {
 			got, err := parseUserIDs(tt.raw)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("parseUserIDs(%q) no devolvió error", tt.raw)
+					t.Fatalf("parseUserIDs(%q) returned no error", tt.raw)
 				}
 				return
 			}
@@ -31,23 +31,23 @@ func TestParseUserIDs(t *testing.T) {
 				t.Fatalf("parseUserIDs(%q): %v", tt.raw, err)
 			}
 			if len(got) != len(tt.want) {
-				t.Fatalf("parseUserIDs(%q) = %v, se esperaban %v", tt.raw, got, tt.want)
+				t.Fatalf("parseUserIDs(%q) = %v, want %v", tt.raw, got, tt.want)
 			}
 			for _, id := range tt.want {
 				if _, ok := got[id]; !ok {
-					t.Errorf("falta el ID %d en %v", id, got)
+					t.Errorf("ID %d missing from %v", id, got)
 				}
 			}
 		})
 	}
 }
 
-// El bug original: parseEnvToMap recibía el valor de ALLOWED_USER_IDS y lo
-// usaba como nombre de variable de entorno, así que el conjunto quedaba vacío
-// y la lista vacía deja pasar a cualquiera.
+// The original bug: parseEnvToMap took the value of ALLOWED_USER_IDS and used
+// it as an environment variable name, so the set came out empty — and an empty
+// list lets anyone through.
 func TestIsAllowedRejectsUnlistedUser(t *testing.T) {
-	// Si quedara alguna lectura del entorno por el valor, este os.Setenv la
-	// delataría: el ID de abajo no es el autorizado.
+	// If any lookup by value were left, this os.Setenv would expose it: the ID
+	// below is not the authorized one.
 	t.Setenv("265596142", "999")
 
 	cfg := &Config{AllowedUserIDs: "265596142"}
@@ -58,47 +58,48 @@ func TestIsAllowedRejectsUnlistedUser(t *testing.T) {
 	cfg.allowedUsers = allowed
 
 	if !cfg.IsAllowed(265596142) {
-		t.Error("el usuario de la lista tendría que estar autorizado")
+		t.Error("the user on the list should be authorized")
 	}
 	if cfg.IsAllowed(999) {
-		t.Error("un usuario fuera de la lista no tendría que estar autorizado")
+		t.Error("a user outside the list should not be authorized")
 	}
 	if !cfg.HasAllowList() {
-		t.Error("HasAllowList = false con un ID configurado")
+		t.Error("HasAllowList = false with one ID configured")
 	}
 }
 
 func TestIsAllowedWithoutListLetsAnyoneIn(t *testing.T) {
-	// Comportamiento documentado; bot.New() se niega a arrancar en este caso.
+	// Documented behavior; bot.New() refuses to start in this case.
 	cfg := &Config{}
 	if !cfg.IsAllowed(1) {
-		t.Error("sin lista se espera que pase cualquiera")
+		t.Error("without a list anyone is expected to get through")
 	}
 	if cfg.HasAllowList() {
-		t.Error("HasAllowList = true sin IDs configurados")
+		t.Error("HasAllowList = true with no IDs configured")
 	}
 }
 
 func TestLoadRejectsMalformedAllowList(t *testing.T) {
-	// El prefijo gana sobre el nombre pelado, así que se setea el prefijado:
-	// con FLIXFLOX_ALLOWED_USER_IDS definido, envconfig ni mira ALLOWED_USER_IDS.
+	// The prefixed name wins over the bare one, so the prefixed one is set:
+	// with FLIXFLOX_ALLOWED_USER_IDS defined, envconfig never looks at
+	// ALLOWED_USER_IDS.
 	t.Setenv("FLIXFLOX_BOT_TOKEN", "test-token")
 	t.Setenv("FLIXFLOX_TELEGRAM_API_ENDPOINT", "http://localhost:8081/bot%s/%s")
 	t.Setenv("FLIXFLOX_TELEGRAM_FILE_ENDPOINT", "http://localhost:8081/file/bot%s/%s")
-	t.Setenv("FLIXFLOX_ALLOWED_USER_IDS", "123,no-soy-un-id")
+	t.Setenv("FLIXFLOX_ALLOWED_USER_IDS", "123,not-an-id")
 
 	if _, err := Load(); err == nil {
-		t.Error("Load() aceptó una lista de autorizados con un ID inválido")
+		t.Error("Load() accepted an allow list with an invalid ID")
 	}
 
-	// La misma config con la lista bien escrita tiene que cargar.
+	// The same config with the list written properly has to load.
 	t.Setenv("FLIXFLOX_ALLOWED_USER_IDS", "123,456")
 
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("Load() rechazó una config válida: %v", err)
+		t.Fatalf("Load() rejected a valid config: %v", err)
 	}
 	if !cfg.IsAllowed(456) || cfg.IsAllowed(789) {
-		t.Errorf("la lista no se cargó como se esperaba: %v", cfg.allowedUsers)
+		t.Errorf("the list was not loaded as expected: %v", cfg.allowedUsers)
 	}
 }
