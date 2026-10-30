@@ -75,6 +75,8 @@ func (b *Bot) handleCallback(ctx context.Context, callback *tgbotapi.CallbackQue
 		cat = categoryMovie
 	case categoryTVShow:
 		cat = categoryTVShow
+	case newEpisode:
+		cat = newEpisode
 	default:
 		b.send(chatID, "Unknown option. Use /start to begin again.")
 		return
@@ -133,6 +135,11 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		b.send(chatID, err.Error()+"\n\n"+prompt(st, sess))
 		return
 	}
+
+	if sess.Category == newEpisode && sess.Stage == stageAwaitingTitle {
+		sess.Titles = b.titlesCatalog(ctx, sess.Title)
+	}
+
 	b.advance(chatID, sess)
 }
 
@@ -237,6 +244,14 @@ func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session
 		baseName: sess.Title,
 		kind:     video,
 		onSaved: func(path string) {
+			// An episode for a show already in the catalog goes to its own
+			// endpoint: sending it as an item would publish the show again, and
+			// with none of the metadata this flow never asked for.
+			if sess.Category == newEpisode {
+				b.publishNewEpisode(ctx, chatID, sess.UUID, b.buildEpisodeRequest(sess, path))
+				return
+			}
+
 			// The background is fetched in parallel and may have finished after
 			// the conversation moved on: the session is re-read so the item is
 			// not published without its bg_image.
@@ -267,6 +282,7 @@ func mainMenu() tgbotapi.InlineKeyboardMarkup {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("Movie", string(categoryMovie)),
 			tgbotapi.NewInlineKeyboardButtonData("Tv Show", string(categoryTVShow)),
+			tgbotapi.NewInlineKeyboardButtonData("New Ep.", string(newEpisode)),
 		),
 	)
 }
@@ -422,6 +438,36 @@ var episodeSteps = []step{
 	},
 }
 
+var newEpisodeSteps = []step{
+	{
+		stage: stageAwaitingTitle,
+		ask: func(sess session) string {
+			return "Send me the title of the tv-show."
+		},
+		assign: func(sess *session, text string) error {
+			title := storage.SanitizeName(text)
+			if title == "" {
+				return errors.New("That title can't be used as a folder name.")
+			}
+			sess.Title = title
+			return nil
+		},
+	},
+	{
+		stage: stageAwaitingTitleList,
+		ask: func(sess session) string {
+			var out strings.Builder
+			out.WriteString("Choose the title:\n")
+			for i, name := range sess.Titles {
+				fmt.Fprintf(&out, "%d. %s\n", i+1, name.title)
+			}
+			return out.String()
+		},
+		skippable: false,
+		assign:    assignTitleUUID,
+	},
+}
+
 // fileSteps closes every flow: the last thing asked for is the file.
 var fileSteps = []step{
 	{
@@ -434,8 +480,9 @@ var fileSteps = []step{
 }
 
 var (
-	movieFlow  = joinSteps(metadataSteps, fileSteps)
-	tvShowFlow = joinSteps(metadataSteps, episodeSteps, fileSteps)
+	movieFlow      = joinSteps(metadataSteps, fileSteps)
+	tvShowFlow     = joinSteps(metadataSteps, episodeSteps, fileSteps)
+	newEpisodeFlow = joinSteps(newEpisodeSteps, episodeSteps, fileSteps)
 )
 
 func joinSteps(parts ...[]step) []step {
@@ -449,6 +496,9 @@ func joinSteps(parts ...[]step) []step {
 func flowFor(cat category) []step {
 	if cat == categoryTVShow {
 		return tvShowFlow
+	}
+	if cat == newEpisode {
+		return newEpisodeFlow
 	}
 	return movieFlow
 }
@@ -536,6 +586,23 @@ func assignGenres(sess *session, text string) error {
 	return nil
 }
 
+func assignTitleUUID(sess *session, text string) error {
+	number := text
+	if number == "" {
+		return fmt.Errorf("Choose the tv-show by number %d.", len(sess.Titles))
+	}
+
+	n, err := strconv.Atoi(number)
+	if err != nil || n < 1 || n > len(sess.Titles) {
+		return fmt.Errorf("%q is not on the list. Send the number between 1 and %d.", number, len(sess.Titles))
+	}
+
+	sess.UUID = sess.Titles[n-1].uuid
+	sess.Title = sess.Titles[n-1].title
+
+	return nil
+}
+
 // timecode validates the shape of the time and stores it as is: rejecting
 // anything else is enough, without guessing which unit the player expects.
 func timecode(field func(*session) *string) func(*session, string) error {
@@ -580,6 +647,7 @@ func validTimecode(text string) bool {
 // sending a file that may weigh several GB.
 func (s session) summary() string {
 	fields := []struct{ label, value string }{
+		{"UUID", s.UUID},
 		{"Title", s.Title},
 		{"Description", s.Description},
 		{"Year", s.ReleaseYear},
@@ -607,10 +675,8 @@ func (s session) summary() string {
 }
 
 const (
-	// genreTTL avoids asking the API for the list on every upload.
-	genreTTL = 10 * time.Minute
-	// genreTimeout caps the wait: the user is staring at the menu.
-	genreTimeout = 10 * time.Second
+	defaultTTL     = 10 * time.Minute
+	defaultTimeout = 10 * time.Second
 )
 
 // genreNames returns the genre names to number at the genre step. If the API
@@ -621,11 +687,11 @@ func (b *Bot) genreNames(ctx context.Context) []string {
 	b.genresMu.Lock()
 	defer b.genresMu.Unlock()
 
-	if b.genres != nil && time.Since(b.genresAt) < genreTTL {
+	if b.genres != nil && time.Since(b.genresAt) < defaultTTL {
 		return b.genres
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, genreTimeout)
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
 	genres, err := b.fetchGenreData(ctx)
@@ -643,6 +709,35 @@ func (b *Bot) genreNames(ctx context.Context) []string {
 
 	b.genres = names
 	b.genresAt = time.Now()
+	return names
+}
+
+func (b *Bot) titlesCatalog(ctx context.Context, title string) []Title {
+	b.titlesMu.Lock()
+	defer b.titlesMu.Unlock()
+
+	if b.titles != nil && time.Since(b.titlesAt) < defaultTTL {
+		return b.titles
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	titles, err := b.fetchCatalogByTitle(ctx, title)
+	if err != nil {
+		log.Printf("could not fetch the titles list: %v", err)
+		return b.titles
+	}
+
+	names := make([]Title, 0, len(titles))
+	for _, title := range titles {
+		if name := strings.TrimSpace(title.Title); name != "" {
+			names = append(names, Title{title: title.Title, uuid: title.UUID})
+		}
+	}
+
+	b.titles = names
+	b.titlesAt = time.Now()
 	return names
 }
 
@@ -671,4 +766,31 @@ func (b *Bot) fetchGenreData(ctx context.Context) ([]Genre, error) {
 	}
 
 	return genres, nil
+}
+
+func (b *Bot) fetchCatalogByTitle(ctx context.Context, title string) ([]CatalogReponse, error) {
+	url := fmt.Sprintf("%s/v1/api/bot/titles?title=%s", b.cfg.APIUrl, title)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create title request: %w", err)
+	}
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch flixflox titles data: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("failed to fetch flixflox titles data: status %d: %s", resp.StatusCode, body)
+	}
+
+	var titles []CatalogReponse
+	if err := json.NewDecoder(resp.Body).Decode(&titles); err != nil {
+		return nil, fmt.Errorf("failed to decode title data: %w", err)
+	}
+
+	return titles, nil
 }

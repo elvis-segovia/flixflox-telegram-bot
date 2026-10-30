@@ -14,6 +14,7 @@ type stage int
 const (
 	stageIdle stage = iota
 	stageAwaitingTitle
+	stageAwaitingTitleList
 	stageAwaitingDescription
 	stageAwaitingYear
 	stageAwaitingGenre
@@ -34,6 +35,7 @@ type category string
 const (
 	categoryMovie  category = "movie"
 	categoryTVShow category = "tv-shows"
+	newEpisode     category = "new-episode"
 )
 
 // dir is the subdirectory of uploads/ where each category lands.
@@ -41,7 +43,9 @@ func (c category) dir() string {
 	switch c {
 	case categoryMovie:
 		return "movies"
-	case categoryTVShow:
+	// A new episode is a file of a show already uploaded: it belongs next to
+	// the other episodes, not in a folder of its own.
+	case categoryTVShow, newEpisode:
 		return "tv-shows"
 	default:
 		return "other"
@@ -54,21 +58,22 @@ func (c category) label() string {
 		return "movie"
 	case categoryTVShow:
 		return "TV show"
+	case newEpisode:
+		return "new episode"
 	default:
 		return string(c)
 	}
 }
 
 type session struct {
-	Stage       stage
-	Category    category
-	Title       string
-	Description string
-	ReleaseYear string
-	Genre       string
-	// Genres is the list the bot showed when the category was picked. It stays
-	// fixed for the whole upload so the numbers the user sends keep pointing at
-	// the same genres even if the API changes in the meantime.
+	Stage                   stage
+	Category                category
+	UUID                    string
+	Title                   string
+	Titles                  []Title
+	Description             string
+	ReleaseYear             string
+	Genre                   string
 	Genres                  []string
 	Rating                  string
 	Background              string

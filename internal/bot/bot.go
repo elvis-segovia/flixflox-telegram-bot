@@ -18,6 +18,11 @@ import (
 
 // Bot is the bot's shared state: configuration, API client and the uploads in
 // progress.
+type Title struct {
+	uuid  string
+	title string
+}
+
 type Bot struct {
 	cfg        *config.Config
 	api        *tgbotapi.BotAPI
@@ -29,6 +34,10 @@ type Bot struct {
 	genresMu sync.Mutex
 	genres   []string
 	genresAt time.Time
+
+	titlesMu sync.Mutex
+	titles   []Title
+	titlesAt time.Time
 
 	// wg waits for the downloads in flight when the bot shuts down.
 	wg sync.WaitGroup

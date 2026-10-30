@@ -76,7 +76,7 @@ func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, base
 	// Only episodes are stored under S01/E01: a movie has no season number, and
 	// demanding one anyway left the file unsaved.
 	destDir := filepath.Join(b.cfg.DownloadDir, sess.Category.dir(), folderName)
-	if kind == video && sess.Category == categoryTVShow {
+	if kind == video && (sess.Category == categoryTVShow || sess.Category == newEpisode) {
 		season, errSeason := strconv.Atoi(sess.SeasonNumber)
 		episode, errEpisode := strconv.Atoi(sess.EpisodeNumber)
 

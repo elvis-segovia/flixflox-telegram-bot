@@ -33,6 +33,14 @@ type Season struct {
 	Episodes     []Episode `json:"episodes"`
 }
 
+// episodeRequest is the body of the new-episode endpoint: the episode as it is
+// stored, plus the season it belongs to at the top level. The show is already
+// in the catalog; the API is the one that creates the season if it is not there.
+type episodeRequest struct {
+	Episode
+	Season int `json:"season"`
+}
+
 type CatalogItem struct {
 	Title                   string   `json:"title"`
 	Type                    string   `json:"type"`
@@ -48,6 +56,11 @@ type CatalogItem struct {
 	IntroEndTime            string   `json:"intro_end_time,omitempty"`
 	Status                  string   `json:"status"`
 	Seasons                 []Season `json:"seasons,omitempty"`
+}
+
+type CatalogReponse struct {
+	UUID  string `json:"uuid"`
+	Title string `json:"title"`
 }
 
 const (
@@ -100,18 +113,34 @@ func (b *Bot) buildCatalogItem(sess session, videoPath string) CatalogItem {
 
 	item.Seasons = []Season{{
 		SeasonNumber: wholeNumberOf(sess.SeasonNumber),
-		Episodes: []Episode{{
-			EpisodeNumber:           wholeNumberOf(sess.EpisodeNumber),
-			Title:                   sess.EpisodeTitle,
-			FilePath:                b.catalogPath(videoPath),
-			Status:                  catalogStatus,
-			SkipIntroDisplayMessage: setDefault(sess.SkipIntroDisplayMessage, "Skip Intro"),
-			IntroStartTime:          setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
-			IntroEndTime:            setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
-			NextEpisodeTime:         setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
-		}},
+		Episodes:     []Episode{b.buildEpisode(sess, videoPath)},
 	}}
 	return item
+}
+
+// buildEpisode assembles the episode this upload brings, the single place that
+// reads the episode fields off the session for both the item that creates the
+// show and the request that adds an episode to one already in the catalog.
+func (b *Bot) buildEpisode(sess session, videoPath string) Episode {
+	return Episode{
+		EpisodeNumber:           wholeNumberOf(sess.EpisodeNumber),
+		Title:                   sess.EpisodeTitle,
+		FilePath:                b.catalogPath(videoPath),
+		Status:                  catalogStatus,
+		SkipIntroDisplayMessage: setDefault(sess.SkipIntroDisplayMessage, "Skip Intro"),
+		IntroStartTime:          setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
+		IntroEndTime:            setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
+		NextEpisodeTime:         setDefault(normalizeTimecode(sess.SkipIntroStartTime), "00:00:00"),
+	}
+}
+
+// buildEpisodeRequest assembles the body for the new-episode endpoint of the
+// show the session is adding to.
+func (b *Bot) buildEpisodeRequest(sess session, videoPath string) episodeRequest {
+	return episodeRequest{
+		Episode: b.buildEpisode(sess, videoPath),
+		Season:  wholeNumberOf(sess.SeasonNumber),
+	}
 }
 
 // publishCatalogItem sends the item to the API once the file is on disk. The
@@ -132,7 +161,43 @@ func (b *Bot) publishCatalogItem(ctx context.Context, chatID int64, item Catalog
 }
 
 func (b *Bot) postCatalogItem(ctx context.Context, item CatalogItem) error {
-	body, err := json.Marshal(item)
+	return b.postCatalog(ctx, "/v1/api/bot/videos", item)
+}
+
+// publishNewEpisode adds the episode to the show the uuid names. Like
+// publishCatalogItem, a failure here is reported and nothing else: the file is
+// already on disk and the episode can be added again without sending it anew.
+func (b *Bot) publishNewEpisode(ctx context.Context, chatID int64, uuid string, episode episodeRequest) {
+	if b.cfg.APIUrl == "" {
+		log.Print("FLIXFLOX_API_URL is empty: the episode is not published")
+		return
+	}
+
+	// Without the uuid the URL would point at the collection and the episode
+	// would be posted as a new show.
+	if uuid == "" {
+		log.Printf("no uuid for the episode S%02dE%02d: it is not published", episode.Season, episode.EpisodeNumber)
+		b.send(chatID, "⚠️ The file was saved, but the show it belongs to is unknown and the catalog was not updated.")
+		return
+	}
+
+	if err := b.postNewEpisode(ctx, uuid, episode); err != nil {
+		log.Printf("error publishing episode S%02dE%02d of %s: %v", episode.Season, episode.EpisodeNumber, uuid, err)
+		b.send(chatID, "⚠️ The file was saved, but the episode was not added to the catalog:\n"+err.Error())
+		return
+	}
+	b.send(chatID, fmt.Sprintf("📡 Episode S%02dE%02d added to the catalog.", episode.Season, episode.EpisodeNumber))
+}
+
+func (b *Bot) postNewEpisode(ctx context.Context, uuid string, episode episodeRequest) error {
+	return b.postCatalog(ctx, "/v1/api/bot/videos/"+uuid+"/new-episode", episode)
+}
+
+// postCatalog sends payload as JSON to a path of the catalog API and reads
+// nothing back but the status: these endpoints answer with what they saved, and
+// the bot has no use for it.
+func (b *Bot) postCatalog(ctx context.Context, path string, payload any) error {
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to encode catalog item: %w", err)
 	}
@@ -140,7 +205,7 @@ func (b *Bot) postCatalogItem(ctx context.Context, item CatalogItem) error {
 	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/v1/api/bot/videos", strings.TrimSuffix(b.cfg.APIUrl, "/"))
+	url := strings.TrimSuffix(b.cfg.APIUrl, "/") + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create catalog request: %w", err)
