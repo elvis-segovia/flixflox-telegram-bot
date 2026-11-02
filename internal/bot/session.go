@@ -28,6 +28,7 @@ const (
 	stageAwaitingSkipIntroEndTime
 	stageAwaitingNextEpisode
 	stageAwaitingFile
+	stageAwaitingNextEpisodeFile
 )
 
 type category string
@@ -83,7 +84,7 @@ type session struct {
 	SkipIntroDisplayMessage string
 	SkipIntroStartTime      string
 	SkipIntroEndTime        string
-	NexEpisode              string
+	NextEpisode             string
 	UpdatedAt               time.Time
 }
 

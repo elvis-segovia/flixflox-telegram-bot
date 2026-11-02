@@ -113,8 +113,9 @@ func (b *Bot) saveMedia(ctx context.Context, media mediaFile, sess session, base
 				return "", fmt.Errorf("moving file: %w", err)
 			}
 			return destPath, nil
+		} else {
+			log.Printf("file_path %q is not readable on the host (%v), downloading over HTTP", srcPath, statErr)
 		}
-		log.Printf("file_path %q does not exist on the host, downloading over HTTP", srcPath)
 	}
 
 	if err := storage.DownloadFile(ctx, b.cfg.FileURL(file.FilePath), destPath); err != nil {

@@ -1,0 +1,21 @@
+# Secrets: the token is passed at runtime, never baked into the image.
+.env
+
+# Runtime data: uploads/ can weigh several GB and telegram-data/ carries the
+# token in the folder name.
+/uploads/
+/telegram-data/
+
+# Binaries and reports built on the host (another OS/arch).
+/bin/
+/flixflox-telegram-bot
+coverage.out
+
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+Makefile
+README.md
+k8s/

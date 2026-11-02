@@ -28,7 +28,7 @@ func TestBuildCatalogItemPutsTheEpisodeInsideTheSeason(t *testing.T) {
 		SkipIntroDisplayMessage: "Skip Intro",
 		SkipIntroStartTime:      "0:30",
 		SkipIntroEndTime:        "1:30",
-		NexEpisode:              "42:10",
+		NextEpisode:             "42:10",
 	}
 
 	item := testBot().buildCatalogItem(sess, "uploads/tv-shows/big_bunny/S01/E01/big_bunny.mkv")

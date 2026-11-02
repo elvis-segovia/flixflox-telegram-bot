@@ -120,6 +120,11 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	}
 
 	if hasMedia(msg) {
+		if (sess.Stage == stageAwaitingFile || sess.Stage == stageAwaitingNextEpisodeFile) && (sess.Category == categoryTVShow || sess.Category == newEpisode) {
+			b.handleMedia(ctx, msg, sess, st)
+			return
+		}
+
 		b.handleMedia(ctx, msg, sess, st)
 		return
 	}
@@ -185,6 +190,14 @@ func (b *Bot) handleSkip(chatID int64, sess session) {
 func (b *Bot) handleMedia(ctx context.Context, msg *tgbotapi.Message, sess session, st step) {
 	chatID := msg.Chat.ID
 
+	if st.canAddNextEpisode && st.stage == stageAwaitingNextEpisodeFile {
+		episodeNumber := wholeNumberOf(sess.EpisodeNumber)
+		episodeNumber = episodeNumber + 1
+		sess.EpisodeNumber = strconv.Itoa(episodeNumber)
+		b.saveVideo(ctx, msg, sess, st)
+		return
+	}
+
 	if !st.media {
 		b.send(chatID, "I wasn't expecting a file here.\n\n"+prompt(st, sess))
 		return
@@ -249,6 +262,11 @@ func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session
 			// with none of the metadata this flow never asked for.
 			if sess.Category == newEpisode {
 				b.publishNewEpisode(ctx, chatID, sess.UUID, b.buildEpisodeRequest(sess, path))
+				if sess.Stage == stageAwaitingFile || sess.Stage == stageAwaitingNextEpisodeFile {
+					sess.Stage = stageAwaitingNextEpisodeFile
+					b.sessions.set(chatID, sess)
+					b.send(chatID, prompt(nextEpisodeSteps[0], sess))
+				}
 				return
 			}
 
@@ -309,6 +327,9 @@ type step struct {
 
 	// skippable enables /skip.
 	skippable bool
+
+	// Add next epidose
+	canAddNextEpisode bool
 }
 
 // metadataSteps is what every category is asked for.
@@ -404,10 +425,9 @@ var episodeSteps = []step{
 		assign: wholeNumber("episode number", func(sess *session) *string { return &sess.EpisodeNumber }),
 	},
 	{
-		stage:     stageAwaitingEpisodeTitle,
-		ask:       ask("Send me the episode title."),
-		skippable: true,
-		assign:    func(sess *session, text string) error { sess.EpisodeTitle = text; return nil },
+		stage:  stageAwaitingEpisodeTitle,
+		ask:    ask("Send me the episode title."),
+		assign: func(sess *session, text string) error { sess.EpisodeTitle = text; return nil },
 	},
 	{
 		stage:     stageAwaitingSkipIntroDisplayMessage,
@@ -434,7 +454,7 @@ var episodeSteps = []step{
 		stage:     stageAwaitingNextEpisode,
 		ask:       ask("Send me the time when the next-episode button shows up (mm:ss)."),
 		skippable: true,
-		assign:    timecode(func(sess *session) *string { return &sess.NexEpisode }),
+		assign:    timecode(func(sess *session) *string { return &sess.NextEpisode }),
 	},
 }
 
@@ -479,10 +499,21 @@ var fileSteps = []step{
 	},
 }
 
+var nextEpisodeSteps = []step{
+	{
+		stage: stageAwaitingNextEpisodeFile,
+		ask: func(sess session) string {
+			return "Now send me the next episode file or /start for a new Movie or Tv Show."
+		},
+		canAddNextEpisode: true,
+		media:             true,
+	},
+}
+
 var (
 	movieFlow      = joinSteps(metadataSteps, fileSteps)
 	tvShowFlow     = joinSteps(metadataSteps, episodeSteps, fileSteps)
-	newEpisodeFlow = joinSteps(newEpisodeSteps, episodeSteps, fileSteps)
+	newEpisodeFlow = joinSteps(newEpisodeSteps, episodeSteps, fileSteps, nextEpisodeSteps)
 )
 
 func joinSteps(parts ...[]step) []step {
@@ -660,7 +691,7 @@ func (s session) summary() string {
 		{"Skip intro label", s.SkipIntroDisplayMessage},
 		{"Skip intro from", s.SkipIntroStartTime},
 		{"Skip intro to", s.SkipIntroEndTime},
-		{"Next episode at", s.NexEpisode},
+		{"Next episode at", s.NextEpisode},
 	}
 
 	var out strings.Builder

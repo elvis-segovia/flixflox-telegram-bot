@@ -10,3 +10,4 @@ coverage.out
 # and uploads/ can weigh several GB.
 /telegram-data/
 /uploads/
+k8s/
