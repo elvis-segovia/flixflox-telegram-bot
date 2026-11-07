@@ -194,8 +194,6 @@ func (b *Bot) handleMedia(ctx context.Context, msg *tgbotapi.Message, sess sessi
 		episodeNumber := wholeNumberOf(sess.EpisodeNumber)
 		episodeNumber = episodeNumber + 1
 		sess.EpisodeNumber = strconv.Itoa(episodeNumber)
-		b.saveVideo(ctx, msg, sess, st)
-		return
 	}
 
 	if !st.media {
@@ -276,7 +274,16 @@ func (b *Bot) saveVideo(ctx context.Context, msg *tgbotapi.Message, sess session
 			if cur := b.sessions.get(chatID); cur.Title == sess.Title && cur.Background != "" {
 				sess.Background = cur.Background
 			}
+
 			b.publishCatalogItem(ctx, chatID, b.buildCatalogItem(sess, path))
+
+			if sess.Category == categoryTVShow {
+				sess.Category = newEpisode
+				sess.Stage = stageAwaitingNextEpisodeFile
+				b.sessions.set(chatID, sess)
+				b.send(chatID, prompt(nextEpisodeSteps[0], sess))
+				return
+			}
 		},
 	})
 }
@@ -512,7 +519,7 @@ var nextEpisodeSteps = []step{
 
 var (
 	movieFlow      = joinSteps(metadataSteps, fileSteps)
-	tvShowFlow     = joinSteps(metadataSteps, episodeSteps, fileSteps)
+	tvShowFlow     = joinSteps(metadataSteps, episodeSteps, fileSteps, nextEpisodeSteps)
 	newEpisodeFlow = joinSteps(newEpisodeSteps, episodeSteps, fileSteps, nextEpisodeSteps)
 )
 
